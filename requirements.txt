@@ -1,0 +1,25 @@
+# ===== 核心数据 =====
+akshare>=1.12.0          # A股免费数据源（行情/K线/资金流/基本面/新闻）
+tushare>=1.2.89          # 可选增强数据源：配置 token 后自动启用，否则降级 AkShare
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ===== 定时调度 =====
+APScheduler>=3.10.0      # 每日选股/盘后复盘定时推送
+
+# ===== AI 大模型（DeepSeek 走 OpenAI 兼容协议）=====
+openai>=1.30.0
+python-dotenv>=1.0.0
+
+# ===== Web 服务 =====
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+
+# ===== 工具 =====
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+rich>=13.0.0             # 终端美化输出
+tabulate>=0.9.0
+requests>=2.31.0

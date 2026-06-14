@@ -1,0 +1,23 @@
+{
+  "_comment": "盘后复盘配置。enabled_modes 控制启用哪些复盘模式及顺序；每个模式可在 mode_options 中单独配置参数。可自由增删、调整顺序，实现高度自定义。",
+  "title": "每日盘后复盘",
+  "enabled_modes": ["market", "breadth", "hotspot", "watchlist", "holdings", "ai_summary"],
+  "use_llm_for": ["market", "ai_summary"],
+  "mode_options": {
+    "market": {
+      "indices": ["sh000001", "sz399001", "sz399006"]
+    },
+    "hotspot": {
+      "top_n": 8
+    },
+    "watchlist": {
+      "show_signals": true
+    },
+    "holdings": {
+      "show_pnl": true
+    },
+    "ai_summary": {
+      "custom_prompt": "请你作为A股首席策略师，基于以上今日市场数据，用5句话总结今日盘面特征、资金情绪与明日操作策略建议。"
+    }
+  }
+}

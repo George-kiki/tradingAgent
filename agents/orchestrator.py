@@ -1,0 +1,153 @@
+"""编排器：串联数据采集 -> 量化策略 -> 多智能体分析 -> 最终决策。"""
+from __future__ import annotations
+
+import pandas as pd
+
+from agents.analysts import ANALYSTS
+from agents.base import StockContext
+from agents.llm import get_llm
+from agents.researchers import run_debate
+from agents.risk_manager import RiskManager
+from agents.trader import TraderAgent
+from core.config import settings
+from core.indicators import latest_snapshot
+from data.fetcher import get_fetcher
+from strategies.library import STRATEGY_REGISTRY
+
+
+def _financials_to_text(df: pd.DataFrame, max_rows: int = 8) -> str:
+    if df is None or df.empty:
+        return ""
+    try:
+        cols = list(df.columns)[:5]
+        return df[cols].head(max_rows).to_string(index=False)
+    except Exception:
+        return ""
+
+
+class AgentOrchestrator:
+    def __init__(self):
+        self.fetcher = get_fetcher()
+        self.llm = get_llm()
+
+    # ---------- 上下文构建 ----------
+    def build_context(self, symbol: str) -> tuple[StockContext, pd.DataFrame]:
+        f = self.fetcher
+        df = f.get_kline(symbol, days=250)
+        if df.empty:
+            raise ValueError(f"无法获取 {symbol} 的行情数据，请检查代码是否正确")
+
+        name = f.get_name(symbol)
+        snapshot = latest_snapshot(df)
+
+        # 全部策略信号
+        signals = []
+        for strat in STRATEGY_REGISTRY.values():
+            try:
+                signals.append(strat.current_signal(df).to_dict())
+            except Exception:
+                pass
+
+        ctx = StockContext(
+            symbol=symbol,
+            name=name,
+            snapshot=snapshot,
+            fund_flow=f.get_fund_flow(symbol),
+            news=f.get_news(symbol),
+            financials=_financials_to_text(f.get_financials(symbol)),
+            strategy_signals=signals,
+        )
+        return ctx, df
+
+    def _build_scorecard(self, symbol: str) -> dict:
+        """基本面评分卡（移植自 stock-analysis skill）。"""
+        from report.scorecard import build_scorecard
+        try:
+            return build_scorecard(self.fetcher.get_valuation_metrics(symbol))
+        except Exception:
+            return {"available": False, "categories": [], "rating": "数据不足"}
+
+    # ---------- 量化综合评分（无 LLM 时降级使用）----------
+    @staticmethod
+    def quant_consensus(ctx: StockContext) -> dict:
+        scores = [s["score"] for s in ctx.strategy_signals]
+        avg = sum(scores) / len(scores) if scores else 0.0
+        buy = sum(1 for s in ctx.strategy_signals if s["signal"] == "BUY")
+        sell = sum(1 for s in ctx.strategy_signals if s["signal"] == "SELL")
+        if avg > 0.4:
+            action = "买入"
+        elif avg > 0.15:
+            action = "增持"
+        elif avg < -0.4:
+            action = "卖出"
+        elif avg < -0.15:
+            action = "减持"
+        else:
+            action = "持有" if avg >= 0 else "观望"
+        return {
+            "action": action,
+            "confidence": int(min(95, 50 + abs(avg) * 50)),
+            "avg_score": round(avg, 3),
+            "buy_signals": buy,
+            "sell_signals": sell,
+            "total_strategies": len(ctx.strategy_signals),
+        }
+
+    # ---------- 完整分析 ----------
+    def analyze(self, symbol: str, verbose: bool = False) -> dict:
+        ctx, df = self.build_context(symbol)
+        quant = self.quant_consensus(ctx)
+
+        result = {
+            "symbol": symbol,
+            "name": ctx.name,
+            "snapshot": ctx.snapshot,
+            "strategy_signals": ctx.strategy_signals,
+            "quant_consensus": quant,
+            "scorecard": self._build_scorecard(symbol),
+            "llm_enabled": self.llm.available,
+        }
+
+        if not self.llm.available:
+            # 纯量化降级：直接用量化共识作为决策
+            result["decision"] = {
+                "action": quant["action"],
+                "confidence": quant["confidence"],
+                "summary": f"量化综合评分 {quant['avg_score']}，"
+                           f"{quant['buy_signals']}买/{quant['sell_signals']}卖（共{quant['total_strategies']}策略）",
+                "reasons": [s["reason"] for s in ctx.strategy_signals if s["signal"] != "HOLD"][:5],
+                "mode": "quant_only",
+            }
+            return result
+
+        # ---- 多智能体流程 ----
+        analyst_reports = {}
+        for cls in ANALYSTS:
+            agent = cls()
+            try:
+                analyst_reports[agent.cn_role] = agent.run(ctx)
+            except Exception as e:
+                analyst_reports[agent.cn_role] = f"[分析失败: {e}]"
+        reports_text = "\n\n".join(f"【{k}】\n{v}" for k, v in analyst_reports.items())
+
+        debate = run_debate(ctx, reports_text, rounds=settings.debate_rounds)
+        debate_summary = (
+            f"多头观点：{debate['final_bull']}\n空头观点：{debate['final_bear']}"
+        )
+
+        risk_view = RiskManager().run(ctx, reports_text, debate_summary)
+        decision = TraderAgent().run(ctx, reports_text, debate_summary, risk_view)
+        decision["mode"] = "multi_agent"
+
+        result.update({
+            "analyst_reports": analyst_reports,
+            "debate": debate,
+            "risk_assessment": risk_view,
+            "decision": decision,
+        })
+        return result
+
+
+def analyze_stock(symbol: str) -> dict:
+    """便捷入口。"""
+    return AgentOrchestrator().analyze(symbol)
