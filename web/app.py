@@ -103,9 +103,9 @@ def api_kline(symbol: str = Query(...), days: int = Query(120)):
 
 @app.get("/api/review")
 def api_review():
-    from review import run_review
+    from review.html_report import generate_html_review
     try:
-        return {"markdown": run_review()}
+        return {"html": generate_html_review()}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

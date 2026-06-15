@@ -1,8 +1,6 @@
 {
   "_comment": "自选股与持仓配置。watchlist=关注列表；holdings=持仓（含成本价与数量，用于持仓复盘）",
-  "watchlist": ["600519", "000858", "300750", "601318", "002594"],
+  "watchlist": [],
   "holdings": [
-    {"symbol": "600519", "cost": 1600.0, "shares": 100},
-    {"symbol": "300750", "cost": 180.0, "shares": 500}
   ]
 }

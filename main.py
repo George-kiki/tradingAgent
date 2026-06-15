@@ -13,6 +13,13 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Windows 控制台默认 GBK，打印 emoji 会触发 UnicodeEncodeError，统一切到 UTF-8
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 from rich.console import Console
 from rich.table import Table
 
@@ -108,7 +115,16 @@ def cmd_review(args):
         res = push(title, md)
         console.print(f"[dim]推送结果：{res}[/dim]")
     path = save_report(md, "review")
-    console.print(f"[dim]复盘报告已保存：{path}[/dim]")
+    console.print(f"[dim]复盘报告(Markdown)已保存：{path}[/dim]")
+
+    if not args.no_html:
+        from review.html_report import generate_html_review, save_html_review
+        console.print("[bold cyan]正在生成 HTML 复盘报告（模板同款）...[/bold cyan]")
+        try:
+            html_path = save_html_review(generate_html_review())
+            console.print(f"[bold green]复盘报告(HTML)已保存：{html_path}[/bold green]")
+        except Exception as e:
+            console.print(f"[red]HTML 复盘生成失败：{e}[/red]")
 
 
 def cmd_push_select(args):
@@ -249,6 +265,7 @@ def build_parser():
 
     r = sub.add_parser("review", help="生成盘后复盘")
     r.add_argument("--push", action="store_true", help="生成后推送到配置的渠道")
+    r.add_argument("--no-html", action="store_true", help="不生成 HTML 复盘报告")
     r.set_defaults(func=cmd_review)
 
     ps = sub.add_parser("push-select", help="生成选股并推送")

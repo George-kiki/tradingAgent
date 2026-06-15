@@ -1119,10 +1119,17 @@ function renderRecommend(r, isHistory){
 
 // 盘后复盘
 async function doReview(){
-  $('r-result').innerHTML = loading('生成复盘中，可能需要 20-60 秒...');
+  $('r-result').innerHTML = loading('生成复盘中，可能需要 30-90 秒...');
   const r = await api('/api/review');
   if(r.error){ $('r-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
-  $('r-result').innerHTML = `<div class="card"><div class="report-text">${marked.parse(r.markdown)}</div></div>`;
+  $('r-result').innerHTML='';
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'width:100%;border:none;border-radius:10px;min-height:800px;background:#0d1117;';
+  iframe.srcdoc = r.html;
+  iframe.onload = ()=>{
+    try{ iframe.style.height = (iframe.contentWindow.document.body.scrollHeight + 40) + 'px'; }catch(e){}
+  };
+  $('r-result').appendChild(iframe);
 }
 
 // 选股（卡片式）
