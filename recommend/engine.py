@@ -98,6 +98,7 @@ class RecommendEngine:
     def __init__(self, db: Optional[RecommendDB] = None):
         self.fetcher = get_fetcher()
         self.db = db or RecommendDB()
+        self._sector_map: dict[str, dict] = {}  # symbol -> 所属热门板块信息（run 时构建）
 
     # ------------------------------------------------------------------
     # 交易日定位
@@ -116,6 +117,79 @@ class RecommendEngine:
             cand = [d for d in dates if d <= as_of]
             return cand[-1] if cand else None
         return dates[-1]
+
+    # ------------------------------------------------------------------
+    # 斐波那契黄金分割回撤
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _fib_retracement(d, lookback: int = 90, tol: float = 0.02) -> dict:
+        """计算最近一段上涨的斐波那契回撤位，判断当前价是否回踩到黄金分割位。
+
+        方法：在最近 lookback 日内找显著摆动低点(swing low)与其后的摆动高点(swing high)，
+        以这段涨幅为基准计算回撤位：
+            level(r) = high - (high - low) * r,  r ∈ {0.236, 0.382, 0.5, 0.618, 0.786}
+        当前收盘价落在某回撤位 ±tol（默认2%）区间内即视为"回踩该位"。
+        50% 是最受关注的强支撑/回调买点。
+
+        返回 {swing_low, swing_high, up_pct, retrace_pct, levels{...},
+              at_382, at_50, at_618, nearest, on_uptrend}。数据不足返回 {}。
+        """
+        try:
+            if d is None or len(d) < 20:
+                return {}
+            seg = d.tail(lookback).reset_index(drop=True)
+            highs = seg["high"].astype(float)
+            lows = seg["low"].astype(float)
+            close = float(seg["close"].iloc[-1])
+
+            # 摆动高点 = 区间内最高价位置；摆动低点 = 高点之前的最低价（确保是"先低后高"的上涨段）
+            hi_idx = int(highs.idxmax())
+            swing_high = float(highs.iloc[hi_idx])
+            if hi_idx <= 0:
+                return {}
+            lo_idx = int(lows.iloc[:hi_idx + 1].idxmin())
+            swing_low = float(lows.iloc[lo_idx])
+            rng = swing_high - swing_low
+            if rng <= 0 or swing_low <= 0:
+                return {}
+
+            up_pct = round((swing_high / swing_low - 1) * 100, 2)
+            # 涨幅太小不构成有效摆动（噪声），不计黄金回撤
+            if up_pct < 8:
+                return {"up_pct": up_pct, "valid": False}
+
+            ratios = {"0.236": 0.236, "0.382": 0.382, "0.5": 0.5, "0.618": 0.618, "0.786": 0.786}
+            levels = {k: round(swing_high - rng * r, 2) for k, r in ratios.items()}
+
+            # 当前价相对该段的回撤比例（0=在高点，1=回到低点）
+            retrace = (swing_high - close) / rng
+            retrace = max(0.0, min(1.5, retrace))
+
+            def _near(ratio):
+                lvl = swing_high - rng * ratio
+                return abs(close - lvl) / close <= tol
+
+            at_382, at_50, at_618 = _near(0.382), _near(0.5), _near(0.618)
+            # 最接近的黄金位
+            nearest = min(ratios.items(), key=lambda kv: abs(retrace - kv[1]))[0]
+            on_uptrend = bool(swing_low < swing_high and hi_idx > lo_idx)
+
+            return {
+                "valid": True,
+                "swing_low": round(swing_low, 2),
+                "swing_high": round(swing_high, 2),
+                "up_pct": up_pct,
+                "retrace_pct": round(retrace * 100, 1),
+                "levels": levels,
+                "fib_50": levels["0.5"],
+                "at_382": at_382,
+                "at_50": at_50,
+                "at_618": at_618,
+                "nearest": nearest,
+                "on_uptrend": on_uptrend,
+            }
+        except Exception:
+            return {}
 
     # ------------------------------------------------------------------
     # 单股评分（基于截至 base_date 的数据）
@@ -155,6 +229,10 @@ class RecommendEngine:
         hi52, lo52 = float(tail["high"].max()), float(tail["low"].min())
         pos52 = round((float(last["close"]) - lo52) / (hi52 - lo52) * 100, 0) if hi52 > lo52 else 50.0
 
+        # 斐波那契黄金比例回撤：以近一段上涨（摆动低→摆动高）为基准，
+        # 判断当前价是否回踩到 50%（及 0.382/0.618）黄金分割位附近——经典回调买点。
+        fib = self._fib_retracement(d)
+
         bonus = 0.0
         if ma_bull:
             bonus += 0.10
@@ -170,12 +248,20 @@ class RecommendEngine:
             bonus -= 0.08
         if mom5 > 18:
             bonus -= 0.08
+        # 回踩 50% 黄金位且上升趋势中 -> 加分（强回调买点）；命中 0.382/0.618 次级加分
+        if fib.get("at_50"):
+            bonus += 0.08
+        elif fib.get("at_382") or fib.get("at_618"):
+            bonus += 0.04
         score = round(strat_score + bonus, 4)
 
         # 硬约束（kline 可判定部分）
         if filters.get("max_rsi") is not None and rsi > filters["max_rsi"]:
             return None
         if filters.get("max_pos_52w") is not None and pos52 > filters["max_pos_52w"]:
+            return None
+        # 可选硬约束：仅保留回踩 50% 黄金分割位的标的
+        if filters.get("require_fib_50") and not fib.get("at_50"):
             return None
 
         # K线迷你（前端卡片）
@@ -193,6 +279,12 @@ class RecommendEngine:
             tags.append("温和放量")
         if rsi < 35:
             tags.append("超跌")
+        if fib.get("at_50"):
+            tags.append("回踩黄金50%")
+        elif fib.get("at_382"):
+            tags.append("回踩黄金38.2%")
+        elif fib.get("at_618"):
+            tags.append("回踩黄金61.8%")
 
         factors = {
             "rsi": rsi,
@@ -204,8 +296,17 @@ class RecommendEngine:
             "buy_strategies": buy_strats,
             "strat_score": round(strat_score, 4),
             "bonus": round(bonus, 4),
+            "fib": fib,  # 斐波那契黄金分割回撤明细
             "main_inflow_positive": None,  # enrich 阶段回填
         }
+        # 所属热门板块（动态候选池标注），用于主线加分与剔除脱离主线者
+        hot = self._sector_map.get(symbol)
+        if hot:
+            factors["hot_sector"] = hot.get("sector")
+            factors["hot_sector_rank"] = hot.get("sector_rank")
+            factors["hot_sector_week_pct"] = hot.get("week_pct")
+            tags.append(f"主线·{hot.get('sector')}")
+
         return {
             "symbol": symbol,
             "score": score,
@@ -216,6 +317,7 @@ class RecommendEngine:
             "buy_reasons": buy_reasons,
             "factors": factors,
             "kline_mini": kline_mini,
+            "hot_sector": hot,
         }
 
     # ------------------------------------------------------------------
@@ -257,16 +359,34 @@ class RecommendEngine:
         item["factors"]["main_inflow_positive"] = inflow_positive
         return item
 
-    def _multifactor(self, item: dict) -> dict:
-        """阶段二多维评分：把基本面/业绩/北向/龙虎榜/利好的加分叠加到综合评分。"""
+    def _multifactor(self, item: dict, sentiment: Optional[dict] = None) -> dict:
+        """阶段二多维评分：把市场情绪(最高权重)/基本面/业绩/北向/龙虎榜/利好叠加到综合评分。"""
         from recommend.fundamentals import score_multifactor
         mf = score_multifactor(self.fetcher, item["symbol"], kline_factors=item["factors"],
-                               industry=item.get("industry"))
+                               industry=item.get("industry"), sentiment=sentiment, item=item)
         item["fundamentals"] = mf
         item["factors"]["multi_bonus"] = mf["multi_bonus"]
         item["factors"]["fundamentals"] = mf  # 持久化，供只读接口展示
-        # 综合分 = 技术面分 + 多维加分
-        item["score"] = round(item.get("tech_score", item["score"]) + mf["multi_bonus"], 4)
+        item["factors"]["sentiment_bonus"] = mf.get("sentiment", {}).get("score")
+
+        # 主线板块加分：踩中近一周最热板块的个股顺势加分（板块排名越靠前加分越多）
+        hot = item.get("hot_sector") or {}
+        rank = hot.get("sector_rank")
+        sector_bonus = 0.0
+        if rank:
+            # rank1 +0.18，rank2 +0.14 … 递减，体现"越是主线越优先"
+            sector_bonus = round(max(0.20 - (rank - 1) * 0.04, 0.04), 4)
+            wk = hot.get("week_pct")
+            if wk is not None and wk > 0:
+                sector_bonus += round(min(wk * 0.006, 0.06), 4)  # 周涨幅越大额外加成
+        item["factors"]["sector_bonus"] = round(sector_bonus, 4)
+        mf["leading_sector"] = {"sector": hot.get("sector"), "rank": rank,
+                                "week_pct": hot.get("week_pct"),
+                                "score": round(sector_bonus, 3)}
+
+        # 综合分 = 技术面分 + 多维加分（含最高权重的市场情绪）+ 主线板块加分
+        item["score"] = round(item.get("tech_score", item["score"])
+                              + mf["multi_bonus"] + sector_bonus, 4)
         # 富化标签
         cat = mf.get("catalyst", {})
         if cat.get("highlights"):
@@ -288,9 +408,26 @@ class RecommendEngine:
         feats = [t for t in item.get("tags", []) if t in ("均线多头", "温和放量", "超跌")]
         if feats:
             parts.append("技术：" + "、".join(feats))
+        # 斐波那契黄金分割回踩
+        fib = (item.get("factors") or {}).get("fib") or {}
+        if fib.get("at_50"):
+            parts.append(f"回踩黄金50%支撑位（{fib.get('fib_50')}，前期涨幅{fib.get('up_pct')}%回调{fib.get('retrace_pct')}%）")
+        elif fib.get("at_382"):
+            parts.append(f"回踩黄金38.2%位（{(fib.get('levels') or {}).get('0.382')}）")
+        elif fib.get("at_618"):
+            parts.append(f"回踩黄金61.8%位（{(fib.get('levels') or {}).get('0.618')}）")
         f = item["factors"]
-        # 多维亮点
+        # 多维亮点（市场情绪权重最高，置于最前）
         mf = item.get("fundamentals", {})
+        sent_note = (mf.get("sentiment") or {}).get("note")
+        if sent_note:
+            parts.append("市场情绪：" + sent_note)
+        # 主线板块归属（与市场资金主线一致性）
+        hot = item.get("hot_sector") or {}
+        if hot.get("sector"):
+            wk = hot.get("week_pct")
+            wk_txt = f"，周{wk:+.1f}%" if isinstance(wk, (int, float)) else ""
+            parts.append(f"踩中市场主线【{hot.get('sector')}】(热度榜第{hot.get('sector_rank','-')}{wk_txt})")
         highs = []
         for key in ("performance", "catalyst", "industry", "valuation", "northbound", "lhb"):
             note = (mf.get(key) or {}).get("note")
@@ -359,9 +496,9 @@ class RecommendEngine:
     # 主流程
     # ------------------------------------------------------------------
     def run(self, as_of: Optional[str] = None, count: Optional[int] = None,
-            pool: Optional[list[str]] = None) -> dict:
+            pool: Optional[list[str]] = None,
+            extra_filters: Optional[dict] = None) -> dict:
         count = count or settings.recommend_count
-        pool = [s for s in (pool or RECOMMEND_POOL) if eligible(s)]
 
         # 1. 结算历史推荐 → 更新胜率
         settle_all_pending(self.db, self.fetcher)
@@ -373,8 +510,30 @@ class RecommendEngine:
 
         # 3+4. 反思（含胜率达标判定 + 权重/约束调整）
         weights, filters, reflection = self._maybe_reflect(base_date)
+        # 合并用户临时约束（如 require_fib_50：仅回踩黄金50%）
+        if extra_filters:
+            filters = {**filters, **{k: v for k, v in extra_filters.items() if v is not None}}
 
-        # 大盘择时：弱市抬高门槛
+        # 2.5 动态候选池：从近一周最热板块拉成分股，让科技/半导体等主线进入视野
+        from recommend.universe import build_dynamic_universe
+        try:
+            dyn_pool, sector_map, hot_week = build_dynamic_universe(
+                self.fetcher, base_pool=(pool or RECOMMEND_POOL))
+        except Exception:
+            dyn_pool, sector_map, hot_week = [], {}, []
+        if not dyn_pool:  # 兜底：动态池失败回退固定池
+            dyn_pool = list(pool or RECOMMEND_POOL)
+        pool = [s for s in dyn_pool if eligible(s)]
+        self._sector_map = sector_map  # 供 _score_stock / _multifactor 读取板块归属
+
+        # 市场情绪（全局、最高权重维度）：复用已取的近一周主线板块，供多因子评分与门槛使用
+        from recommend.sentiment import compute_market_sentiment
+        try:
+            sentiment = compute_market_sentiment(self.fetcher, base_date, hot_sectors=hot_week)
+        except Exception:
+            sentiment = {}
+
+        # 大盘择时 + 情绪门槛：弱市/低迷情绪抬高入选门槛
         market_note = ""
         min_score = float(filters.get("min_score") or 0.0)
         if filters.get("market_timing"):
@@ -386,6 +545,25 @@ class RecommendEngine:
                     if float(idx.iloc[-1]["close"]) < ma20:
                         min_score += 0.10
                         market_note = "大盘处于20日线下方（弱市），已抬高入选门槛、收紧推荐。"
+        # 情绪冰点/低迷时整体提高门槛（情绪是最高权重，直接影响是否值得参与）
+        sent_score = float(sentiment.get("score", 50.0)) if sentiment else 50.0
+        if sent_score < 30:
+            min_score += 0.12
+            market_note = (market_note + " " if market_note else "") + \
+                f"市场情绪{sent_score:.0f}分（冰点），大幅抬高门槛、从严推荐。"
+        elif sent_score < 45:
+            min_score += 0.05
+            market_note = (market_note + " " if market_note else "") + \
+                f"市场情绪{sent_score:.0f}分（低迷），适度抬高入选门槛。"
+
+        # 主线一致性：情绪不冷且存在明确主线时，优先/限定主线板块内选股，
+        # 剔除与近期市场情绪脱节（不属任何热门板块）的标的。
+        leading = (sentiment or {}).get("leading_sectors") or hot_week or []
+        enforce_mainline = bool(leading) and sent_score >= 45
+        if enforce_mainline:
+            tops = "、".join(s.get("name", "") for s in leading[:4] if s.get("name"))
+            market_note = (market_note + " " if market_note else "") + \
+                f"市场主线聚焦【{tops}】，已优先从主线板块内选股、剔除脱离主线标的。"
 
         # 5. 阶段一：技术面快速初筛全池
         scored = []
@@ -400,8 +578,15 @@ class RecommendEngine:
                 continue
         scored.sort(key=lambda x: x["score"], reverse=True)
 
-        # 阶段二：对靠前候选做多维富化（基本面/业绩/北向/龙虎榜/利好），重排综合分
-        shortlist = scored[: max(count * 3, 12)]
+        # 阶段二候选：强制主线时，主线股优先纳入 shortlist（避免被高技术分蓝筹挤占），
+        # 再用非主线股补足，保证富化与最终名单聚焦市场主线。
+        cap = max(count * 4, 16)
+        if enforce_mainline:
+            on = [x for x in scored if (x.get("hot_sector") or {}).get("sector")]
+            off = [x for x in scored if not (x.get("hot_sector") or {}).get("sector")]
+            shortlist = (on + off)[:cap]
+        else:
+            shortlist = scored[:cap]
         for item in shortlist:
             try:
                 self._enrich(item)
@@ -409,31 +594,57 @@ class RecommendEngine:
                 item.setdefault("name", resolve_name(self.fetcher, item["symbol"]))
                 item.setdefault("industry", "—")
             try:
-                self._multifactor(item)
+                self._multifactor(item, sentiment=sentiment)
             except Exception:
                 item.setdefault("fundamentals", {})
             item["reason"] = self._gen_reason(item)
         shortlist.sort(key=lambda x: x["score"], reverse=True)
 
-        # 6. 约束筛选（资金流入 / 板块上限），填满 count
+        # 6. 约束筛选（资金流入 / 板块上限 / 主线一致性），填满 count
         require_inflow = bool(filters.get("require_fund_inflow"))
         require_fund = bool(filters.get("require_positive_fundamental"))
         max_sector = filters.get("max_per_sector")
         picks: list[dict] = []
         sector_count: dict[str, int] = {}
-        for item in shortlist:
-            if len(picks) >= count:
-                break
+
+        def _passes(item) -> bool:
             if require_inflow and item["factors"].get("main_inflow_positive") is False:
-                continue
+                return False
             if require_fund and (item["factors"].get("multi_bonus") or 0) < 0:
-                continue
+                return False
             if max_sector:
                 ind = item.get("industry", "—")
                 if sector_count.get(ind, 0) >= max_sector:
-                    continue
+                    return False
+            return True
+
+        def _take(item):
+            if max_sector:
+                ind = item.get("industry", "—")
                 sector_count[ind] = sector_count.get(ind, 0) + 1
             picks.append(item)
+
+        # 第一遍：仅收"踩中主线板块"的标的（确保名单与市场主线高度一致）
+        for item in shortlist:
+            if len(picks) >= count:
+                break
+            on_mainline = bool((item.get("hot_sector") or {}).get("sector"))
+            if not on_mainline:
+                continue
+            if _passes(item):
+                _take(item)
+
+        # 第二遍：主线股不足 count 时，用非主线标的按综合分补齐（保证名单填满）
+        if len(picks) < count:
+            chosen = {p["symbol"] for p in picks}
+            for item in shortlist:
+                if len(picks) >= count:
+                    break
+                if item["symbol"] in chosen:
+                    continue
+                if _passes(item):
+                    _take(item)
+                    chosen.add(item["symbol"])
 
         # 兜底：若约束过严导致不足，放宽约束按综合分补齐
         if len(picks) < count:
@@ -456,6 +667,7 @@ class RecommendEngine:
             "weights": weights,
             "filters": filters,
             "market_note": market_note,
+            "sentiment": sentiment,
             "prev_winrate": prev_wr,
             "reflection": reflection,
             "threshold": settings.winrate_threshold,

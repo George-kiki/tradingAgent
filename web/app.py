@@ -111,12 +111,17 @@ def api_review():
 
 
 @app.get("/api/recommend")
-def api_recommend(count: int = Query(5), date: str = Query("")):
-    """生成（或返回最新）每日荐股 + 反思看板。"""
+def api_recommend(count: int = Query(5), date: str = Query(""),
+                  require_fib_50: bool = Query(False)):
+    """生成（或返回最新）每日荐股 + 反思看板。
+
+    require_fib_50=true 时，仅保留回踩斐波那契黄金50%分割位的标的。
+    """
     from recommend.engine import RecommendEngine
     try:
         eng = RecommendEngine()
-        res = eng.run(as_of=date or None, count=count)
+        extra = {"require_fib_50": True} if require_fib_50 else None
+        res = eng.run(as_of=date or None, count=count, extra_filters=extra)
         return JSONResponse(res)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -149,9 +154,37 @@ def _recommend_view(db, base_date: str) -> dict:
             db.save_recommendations(base_date, picks)
         except Exception:
             pass
+
+    # 从 picks 的因子快照还原该批次的全局市场情绪（情绪分对全批次一致）+ 主线板块
+    sentiment = None
+    sectors_seen: dict = {}
+    for p in picks:
+        fac = p.get("factors") or {}
+        sent = ((fac.get("fundamentals") or {}).get("sentiment")) or {}
+        if sentiment is None and sent.get("market_score") is not None:
+            sentiment = {
+                "score": sent.get("market_score"),
+                "temperature": sent.get("temperature"),
+                "weight": sent.get("weight"),
+                "from_cache": True,
+            }
+        # 还原 pick 的所属主线板块（供卡片标签）
+        hs = fac.get("hot_sector")
+        if hs:
+            p["hot_sector"] = {"sector": hs, "sector_rank": fac.get("hot_sector_rank"),
+                               "week_pct": fac.get("hot_sector_week_pct")}
+            if hs not in sectors_seen:
+                sectors_seen[hs] = {"name": hs, "week_pct": fac.get("hot_sector_week_pct"),
+                                    "rank": fac.get("hot_sector_rank")}
+    if sentiment is not None:
+        lead = sorted(sectors_seen.values(), key=lambda x: (x.get("rank") or 999))
+        if lead:
+            sentiment["leading_sectors"] = lead
+
     return {
         "base_date": base_date,
         "picks": picks,
+        "sentiment": sentiment,
         "prev_winrate": db.latest_winrate(before=base_date),
         "winrate": db.get_winrate(base_date),
         "reflection": db.get_reflection(base_date),

@@ -641,6 +641,139 @@ class DataFetcher:
 
         return cached_call(key, _fetch, ttl=1800) or []
 
+    # ---------- 近一周板块热度榜（识别市场主线）----------
+    def get_hot_sectors_week(self, top: int = 12, days: int = 5) -> list[dict]:
+        """近一周（默认5个交易日）板块热度榜，用于识别**资金主线/板块轮动趋势**。
+
+        与单日涨幅榜不同，这里按多日累计涨幅排序，更能反映持续的市场主线（如科技主导期
+        半导体/元件板块连续走强）。综合：行业板块 + 概念板块（半导体、元件、AI 等概念常在
+        概念板块）。返回每个板块的近一周累计涨幅、当日涨幅、领涨股、板块类型。
+
+        强缓存（2小时）+ 容错：东财限流时返回空，由上层回退到静态主线映射。
+        """
+        _require_ak()
+        key = f"hot_sectors_week:{top}:{days}"
+
+        def _name_pct_list(list_caller, hist_caller, board_type: str) -> list[dict]:
+            """通用：取板块榜 -> 对前若干板块取近一周历史累计涨幅。"""
+            try:
+                df = _retry(list_caller, retries=2)
+            except Exception:
+                df = None
+            if df is None or df.empty:
+                return []
+            pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
+            name_col = next((c for c in df.columns if "板块名称" in c or "名称" in c), None)
+            lead_col = next((c for c in df.columns if "领涨" in c and "股" in c), None) \
+                or next((c for c in df.columns if "领涨" in c), None)
+            flow_col = next((c for c in df.columns if "资金" in c or "主力" in c), None)
+            if not name_col or not pct_col:
+                return []
+            # 先按当日涨幅取榜前 N*2，再用近一周累计涨幅精排
+            df = df.sort_values(pct_col, ascending=False).head(top * 2)
+            out = []
+            end = dt.date.today()
+            start = end - dt.timedelta(days=max(days * 2 + 6, 16))
+            for _, row in df.iterrows():
+                nm = str(row[name_col])
+                day_pct = round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2)
+                week_pct = None
+                try:
+                    h = hist_caller(nm, start, end)
+                    if h is not None and not h.empty:
+                        hp = next((c for c in h.columns if "涨跌幅" in c), None)
+                        cl = next((c for c in h.columns if c in ("收盘", "收盘价")), None)
+                        if cl and len(h) >= 2:
+                            c0 = float(pd.to_numeric(h[cl].iloc[-min(days + 1, len(h))], errors="coerce"))
+                            c1 = float(pd.to_numeric(h[cl].iloc[-1], errors="coerce"))
+                            if c0:
+                                week_pct = round((c1 / c0 - 1) * 100, 2)
+                        elif hp:
+                            week_pct = round(float(pd.to_numeric(h[hp].tail(days), errors="coerce").sum()), 2)
+                except Exception:
+                    week_pct = None
+                out.append({
+                    "name": nm,
+                    "type": board_type,
+                    "day_pct": day_pct,
+                    "week_pct": week_pct if week_pct is not None else day_pct,
+                    "leader": str(row[lead_col]) if lead_col else "",
+                    "fund_flow": str(row[flow_col]) if flow_col else "",
+                })
+            return out
+
+        def _ind_hist(nm, start, end):
+            return ak.stock_board_industry_hist_em(
+                symbol=nm, period="日k",
+                start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"),
+                adjust="")
+
+        def _con_hist(nm, start, end):
+            return ak.stock_board_concept_hist_em(
+                symbol=nm, period="daily",
+                start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"),
+                adjust="")
+
+        def _fetch():
+            rows = []
+            rows += _name_pct_list(lambda: ak.stock_board_industry_name_em(), _ind_hist, "行业")
+            try:
+                rows += _name_pct_list(lambda: ak.stock_board_concept_name_em(), _con_hist, "概念")
+            except Exception:
+                pass
+            if not rows:
+                return None
+            # 按近一周累计涨幅排序，取 top
+            rows.sort(key=lambda x: (x.get("week_pct") if x.get("week_pct") is not None else -999),
+                      reverse=True)
+            # 去重（同名概念/行业取累计更高者）
+            seen, uniq = set(), []
+            for r in rows:
+                k = r["name"]
+                if k not in seen:
+                    seen.add(k)
+                    uniq.append(r)
+            return uniq[:top]
+
+        return cached_call(key, _fetch, ttl=7200) or []
+
+    # ---------- 板块成分股（动态候选池来源）----------
+    def get_board_cons(self, board_name: str, board_type: str = "行业") -> list[dict]:
+        """获取某板块的成分股 [{代码,名称,涨跌幅,总市值}]。
+
+        board_type: '行业' 用 stock_board_industry_cons_em；'概念' 用 stock_board_concept_cons_em。
+        强缓存（6小时）+ 容错：限流/无效板块返回空列表。
+        """
+        _require_ak()
+        key = f"board_cons:{board_type}:{board_name}"
+
+        def _fetch():
+            caller = (ak.stock_board_concept_cons_em if board_type == "概念"
+                      else ak.stock_board_industry_cons_em)
+            try:
+                df = _retry(lambda: caller(symbol=board_name), retries=2)
+            except Exception:
+                df = None
+            if df is None or df.empty:
+                return None
+            code_col = next((c for c in df.columns if c in ("代码", "股票代码")), None)
+            name_col = next((c for c in df.columns if c in ("名称", "股票名称") or "名称" in c), None)
+            pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
+            mv_col = next((c for c in df.columns if "总市值" in c), None)
+            if not code_col:
+                return None
+            out = []
+            for _, row in df.iterrows():
+                out.append({
+                    "代码": normalize_symbol(str(row[code_col])),
+                    "名称": str(row[name_col]) if name_col else "",
+                    "涨跌幅": float(pd.to_numeric(row[pct_col], errors="coerce") or 0) if pct_col else None,
+                    "总市值": float(pd.to_numeric(row[mv_col], errors="coerce") or 0) if mv_col else None,
+                })
+            return out or None
+
+        return cached_call(key, _fetch, ttl=21600) or []
+
     def get_index_spot(self) -> list[dict]:
         """主要指数实时行情（上证/深成/创业板/沪深300）。"""
         _require_ak()

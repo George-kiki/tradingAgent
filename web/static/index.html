@@ -114,6 +114,7 @@
   .pick-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
   .pick-tag{font-size:11px;padding:2px 8px;border-radius:20px;
     background:rgba(167,139,250,.16);color:var(--purple);font-weight:600}
+  .pick-tag.fib{background:rgba(240,185,11,.18);color:var(--gold);font-weight:700}
   .pick-spark{width:100%;height:90px;background:#0e141d;border-radius:8px;margin-bottom:10px}
   .pick-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
   .pick-stats > div{background:#0e141d;border-radius:8px;padding:7px 9px;display:flex;
@@ -162,6 +163,38 @@
   .mf-pos{color:var(--green);font-weight:700} .mf-neg{color:var(--red);font-weight:700}
   .mf-zero{color:var(--sub)}
   .mf-up{color:var(--gold);font-size:10px;font-weight:700}
+  /* 市场情绪看板（最高权重指标）*/
+  .sent-board{display:flex;gap:18px;align-items:stretch;background:linear-gradient(135deg,#1a2331,#141b25);
+    border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+  @media(max-width:680px){.sent-board{flex-direction:column}}
+  .sent-gauge{flex-shrink:0;width:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;border-right:1px solid var(--line);padding-right:18px}
+  @media(max-width:680px){.sent-gauge{border-right:none;border-bottom:1px solid var(--line);width:100%;padding:0 0 12px}}
+  .sent-emoji{font-size:34px;line-height:1}
+  .sent-score{font-size:44px;font-weight:900;line-height:1.1}
+  .sent-temp{font-size:13px;font-weight:700;color:#cbd5e1;margin-top:2px}
+  .sent-w{font-size:10.5px;color:var(--gold);background:rgba(240,185,11,.12);border-radius:8px;padding:2px 8px;margin-top:6px;font-weight:700}
+  .sent-body{flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .sent-bar{height:9px;background:rgba(255,255,255,.07);border-radius:6px;overflow:hidden;margin-bottom:10px}
+  .sent-bar-fill{height:100%;border-radius:6px;transition:width .4s}
+  .sent-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .sent-chip{font-size:11.5px;padding:3px 9px;border-radius:9px;background:rgba(255,255,255,.05);color:#cbd5e1}
+  .sent-chip b{color:#fff;font-weight:700;margin-right:3px}
+  .sent-sum{font-size:12px;color:var(--sub);margin-top:8px;line-height:1.5}
+  /* 近一周市场主线板块热度条 */
+  .sent-lead{margin-top:12px;background:rgba(0,0,0,.18);border-radius:10px;padding:10px 12px}
+  .sent-lead-t{font-size:12.5px;font-weight:700;color:#cbd5e1;margin-bottom:8px}
+  .lead-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .lead-rank{width:18px;height:18px;border-radius:5px;background:var(--accent2);color:#fff;
+    font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .lead-name{width:130px;font-size:12.5px;font-weight:700;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lead-name i{font-style:normal;font-size:10px;color:var(--sub);margin-left:4px;font-weight:400}
+  .lead-bar{flex:1;height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden}
+  .lead-fill{display:block;height:100%;border-radius:5px}
+  .lead-pct{width:56px;text-align:right;font-size:12px;font-weight:700;flex-shrink:0}
+  /* 荐股卡片 - 主线板块标签 */
+  .pick-mainline{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
+    padding:2px 8px;border-radius:9px;background:rgba(246,70,93,.14);color:#ff8a9b;margin-left:6px}
   /* 价值挖掘 - 五步分步卡片 */
   .vstep{background:linear-gradient(180deg,#1a2331,#141b25);border:1px solid var(--line);
     border-radius:14px;padding:18px;margin-bottom:16px}
@@ -350,6 +383,9 @@
       </select>
       <button onclick="doRecommend(false)">读取最新荐股</button>
       <button onclick="doRecommend(true)" style="background:var(--gold);color:#000">重新生成（结算+反思+选股）</button>
+      <label class="hint" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer">
+        <input type="checkbox" id="rc-fib50"> 仅回踩黄金50%
+      </label>
     </div>
     <div class="row" style="border-top:1px dashed var(--line);padding-top:12px">
       <span class="hint">📅 历史荐股：</span>
@@ -930,7 +966,8 @@ async function doRecommend(regen){
   $('rc-result').innerHTML = loading(regen
       ? '正在结算昨日推荐 → 计算胜率 → 反思迭代 → 重新选股，请稍候（30-90秒）...'
       : '读取最新荐股中...');
-  const url = regen ? `/api/recommend?count=${cnt}` : '/api/recommend/latest';
+  const fib50 = $('rc-fib50') && $('rc-fib50').checked ? '&require_fib_50=1' : '';
+  const url = regen ? `/api/recommend?count=${cnt}${fib50}` : '/api/recommend/latest';
   const r = await api(url);
   if(r.error){ $('rc-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
   if(r.empty){ $('rc-result').innerHTML=`<div class="card hint">暂无荐股记录，请点击「重新生成」。</div>`; return; }
@@ -1008,6 +1045,59 @@ function renderRecommend(r, isHistory){
   }
   board += `</div>`;
 
+  // —— 市场情绪看板（最高权重指标）——
+  const st = r.sentiment;
+  if(st && st.score!=null){
+    const sc = st.score;
+    const temp = st.temperature || '';
+    const emoji = st.emoji || (sc>=80?'🔥':sc>=62?'☀️':sc>=45?'⛅':sc>=30?'🌧️':'❄️');
+    const barColor = sc>=62?'var(--green)':sc>=45?'var(--gold)':'var(--red)';
+    const det = st.details || {};
+    const detName = {breadth:'涨跌广度',limits:'涨停跌停',trend:'大盘趋势',volume:'量能',sectors:'板块热度',northbound:'北向资金'};
+    let chips = '';
+    Object.keys(detName).forEach(k=>{
+      if(det[k]){
+        const dv = det[k];
+        chips += `<span class="sent-chip"><b>${detName[k]}</b> ${dv.score}${dv.note?(' · '+dv.note):''}</span>`;
+      }
+    });
+    // 近一周市场主线板块热度条
+    const lead = st.leading_sectors || [];
+    let leadHtml = '';
+    if(lead.length){
+      const maxw = Math.max(...lead.map(s=>Math.abs(s.week_pct||s.day_pct||0)), 1);
+      leadHtml = `<div class="sent-lead"><div class="sent-lead-t">🚀 近一周市场主线（资金主线 / 板块轮动）</div>`;
+      lead.slice(0,6).forEach((s,i)=>{
+        const wp = (s.week_pct!=null)?s.week_pct:(s.day_pct!=null?s.day_pct:null);
+        const w = wp!=null?Math.max(Math.abs(wp)/maxw*100,6):30;
+        const col = (wp==null)?'var(--sub)':(wp>=0?'var(--red)':'var(--green)');
+        const wpTxt = wp!=null?`${wp>=0?'+':''}${wp.toFixed(1)}%`:'—';
+        leadHtml += `<div class="lead-row">
+          <span class="lead-rank">${i+1}</span>
+          <span class="lead-name">${s.name||''}${s.type?`<i>${s.type}</i>`:''}</span>
+          <span class="lead-bar"><span class="lead-fill" style="width:${w}%;background:${col}"></span></span>
+          <span class="lead-pct" style="color:${col}">${wpTxt}</span>
+        </div>`;
+      });
+      leadHtml += `</div>`;
+    }
+    board += `<div class="sent-board">
+      <div class="sent-gauge">
+        <div class="sent-emoji">${emoji}</div>
+        <div class="sent-score" style="color:${barColor}">${sc}</div>
+        <div class="sent-temp">市场情绪 · ${temp}</div>
+        ${st.weight?`<div class="sent-w">最高权重 ×${st.weight}</div>`:''}
+      </div>
+      <div class="sent-body">
+        <div class="sent-bar"><div class="sent-bar-fill" style="width:${sc}%;background:${barColor}"></div></div>
+        <div class="sent-chips">${chips || '<span class="hint">情绪分项数据加载中…</span>'}</div>
+        ${leadHtml}
+        ${st.summary?`<div class="sent-sum">${st.summary}</div>`:''}
+        <div class="hint" style="margin-top:6px">市场情绪为荐股最高权重因子，并以近一周主线板块为核心筛选基准：优先从热门板块内选股、剔除脱离主线标的，确保名单与市场资金主线一致。</div>
+      </div>
+    </div>`;
+  }
+
   // —— 反思看板 ——
   const ref = r.reflection;
   if(ref){
@@ -1063,7 +1153,18 @@ function renderRecommend(r, isHistory){
     const pos = (f.pos_52w!=null)?f.pos_52w:(p.pos_52w!=null?p.pos_52w:'—');
     const inflow = f.main_inflow_positive;
     const mf = p.fundamentals || (f.fundamentals) || {};
-    const tags=(p.tags||[]).map(t=>`<span class="pick-tag">${t}</span>`).join('');
+    // 所属市场主线板块标签
+    const hs = p.hot_sector || (f.hot_sector?{sector:f.hot_sector,sector_rank:f.hot_sector_rank,week_pct:f.hot_sector_week_pct}:null);
+    let mainlineBadge='';
+    if(hs && hs.sector){
+      const wp = hs.week_pct;
+      const wpTxt = (wp!=null)?` ${wp>=0?'+':''}${(+wp).toFixed(1)}%`:'';
+      mainlineBadge = `<span class="pick-mainline" title="近一周市场主线板块">🚀 ${hs.sector}${hs.sector_rank?` #${hs.sector_rank}`:''}${wpTxt}</span>`;
+    }
+    const tags=(p.tags||[]).filter(t=>!String(t).startsWith('主线·')).map(t=>{
+      const isFib = String(t).startsWith('回踩黄金');
+      return `<span class="pick-tag${isFib?' fib':''}">${isFib?'📐 ':''}${t}</span>`;
+    }).join('');
     // 若已结算，显示次日结果
     let resultBadge='';
     if(p.is_win!=null){
@@ -1075,7 +1176,7 @@ function renderRecommend(r, isHistory){
       <div class="pick-head">
         <div><span class="pick-rank">#${i+1}</span>
           <span class="pick-name">${p.name||p.symbol}</span>
-          <span class="pick-code">${p.symbol}</span></div>
+          <span class="pick-code">${p.symbol}</span>${mainlineBadge}</div>
         <div class="pick-score" title="加权评分">${p.score}</div>
       </div>
       <div class="pick-price-row">

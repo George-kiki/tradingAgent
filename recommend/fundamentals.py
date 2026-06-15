@@ -1,12 +1,15 @@
-"""多维度综合评分：在技术面之外，纳入基本面/资金/消息面，使荐股更全面。
+"""多维度综合评分：在技术面之外，纳入市场情绪/基本面/资金/消息面，使荐股更贴合市场预期。
 
 维度（每项给有界加/减分，汇总为 multi_bonus，叠加到技术面评分）：
+0. 市场情绪  —— 全局市场情绪温度（涨跌家数/涨停/大盘趋势/量能/板块），**权重最高**，
+   情绪好整体加分、情绪差整体压分，确保选股不逆市场预期（见 recommend/sentiment.py）
 1. 估值      —— PE / PB（合理低估加分，亏损/高估减分）
 2. 业绩      —— ROE / 净利润同比 / 营收同比（高成长高盈利加分）
 3. 北向资金  —— 陆股通持股占比及近5日增减持趋势（增持加分）
 4. 龙虎榜    —— 近一月是否上榜及净买额（资金博弈关注，净买入加分）
 5. 放量      —— 温和放量加分（来自技术因子）
 6. 近期利好  —— 新闻标题关键词情感（利好加分、利空减分）
+7. 行业景气  —— 所属行业板块涨幅与排名（景气行业加分）
 
 所有数据 best-effort：取不到的维度按中性(0分)处理，不影响其余维度，符合系统容错原则。
 """
@@ -204,8 +207,15 @@ def _score_industry(fetcher, industry: Optional[str]) -> tuple[float, str]:
 
 def score_multifactor(fetcher, symbol: str, valuation: Optional[dict] = None,
                       kline_factors: Optional[dict] = None,
-                      industry: Optional[str] = None) -> dict:
-    """对单只股票做多维综合评分，返回各维度明细 + 合计加分 multi_bonus。"""
+                      industry: Optional[str] = None,
+                      sentiment: Optional[dict] = None,
+                      item: Optional[dict] = None) -> dict:
+    """对单只股票做多维综合评分，返回各维度明细 + 合计加分 multi_bonus。
+
+    sentiment 为全局市场情绪（compute_market_sentiment 结果）。市场情绪是**最高权重**
+    维度：情绪好整体加分、情绪差整体压分，并对顺/逆势个股做轻度增强，确保选股不偏离
+    当下市场预期。
+    """
     val = valuation if valuation is not None else _safe(lambda: fetcher.get_valuation_metrics(symbol), {})
     kf = kline_factors or {}
 
@@ -229,6 +239,13 @@ def score_multifactor(fetcher, symbol: str, valuation: Optional[dict] = None,
     vol_ratio = kf.get("volume_ratio")
     s_vol = 0.02 if (vol_ratio and 1.2 <= vol_ratio <= 3) else 0.0
 
+    # 市场情绪（全局，最高权重维度）。无情绪数据时按 0 处理。
+    s_sent_w, n_sent, sent_w = 0.0, "", 0.0
+    if sentiment:
+        from recommend.sentiment import sentiment_stock_bonus, SENTIMENT_WEIGHT
+        s_sent_w, n_sent = sentiment_stock_bonus(sentiment, item or {"factors": kf})
+        sent_w = SENTIMENT_WEIGHT
+
     # 应用维度权重系数（业绩/利好/行业景气度已调高）
     W = DIM_WEIGHTS
     s_val_w = s_val * W["valuation"]
@@ -239,12 +256,16 @@ def score_multifactor(fetcher, symbol: str, valuation: Optional[dict] = None,
     s_ind_w = s_ind * W["industry"]
     s_vol_w = s_vol * W["volume"]
 
-    bonus = _clip(s_val_w + s_perf_w + s_north_w + s_lhb_w + s_cat_w + s_ind_w + s_vol_w,
-                  -0.4, 0.5)
+    # 情绪为最高权重维度，扩大 clip 上下限以容纳其影响
+    bonus = _clip(s_sent_w + s_val_w + s_perf_w + s_north_w + s_lhb_w
+                  + s_cat_w + s_ind_w + s_vol_w, -0.8, 1.0)
 
     return {
         "multi_bonus": round(bonus, 4),
-        "weights": W,
+        "weights": {**W, "sentiment": sent_w},
+        "sentiment": {"score": round(s_sent_w, 3), "note": n_sent, "weight": sent_w,
+                      "market_score": (sentiment or {}).get("score"),
+                      "temperature": (sentiment or {}).get("temperature")},
         "valuation": {"pe": pe, "pb": pb, "score": round(s_val_w, 3), "note": n_val},
         "performance": {"roe": roe, "profit_growth": profit_g, "revenue_growth": rev_g,
                         "score": round(s_perf_w, 3), "note": n_perf, "weight": W["performance"]},
