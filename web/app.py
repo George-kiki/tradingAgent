@@ -1,6 +1,7 @@
 """FastAPI Web 服务：提供分析、回测、选股的接口与页面。"""
 from __future__ import annotations
 
+import datetime as dt
 import os
 
 from fastapi import Body, FastAPI, Query
@@ -110,6 +111,40 @@ def api_review():
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+def _recommend_regen_status() -> dict:
+    """每日荐股重新生成开关：18:30 后（以配置为准）才允许，用完整收盘/龙虎榜数据。"""
+    from core.config import settings
+
+    hm = settings.recommend_push_time or "18:30"
+    try:
+        hour, minute = [int(x) for x in hm.split(":", 1)]
+    except Exception:
+        hour, minute = 18, 30
+        hm = "18:30"
+
+    now = dt.datetime.now()
+    unlock = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    can = now >= unlock
+    next_unlock = unlock if not can else unlock + dt.timedelta(days=1)
+    reason = (
+        "每日荐股使用今日收盘后的完整行情、资金流与龙虎榜数据；"
+        f"龙虎榜通常 18:00 后逐步完整，因此 {hm} 后才开放重新生成。"
+    )
+    return {
+        "can_regenerate": can,
+        "unlock_time": unlock.strftime("%Y-%m-%d %H:%M"),
+        "next_unlock_time": next_unlock.strftime("%Y-%m-%d %H:%M"),
+        "configured_time": hm,
+        "reason": reason,
+    }
+
+
+@app.get("/api/recommend/status")
+def api_recommend_status():
+    """返回荐股重新生成按钮的可用状态。"""
+    return _recommend_regen_status()
+
+
 @app.get("/api/recommend")
 def api_recommend(count: int = Query(5), date: str = Query(""),
                   require_fib_50: bool = Query(False)):
@@ -117,6 +152,10 @@ def api_recommend(count: int = Query(5), date: str = Query(""),
 
     require_fib_50=true 时，仅保留回踩斐波那契黄金50%分割位的标的。
     """
+    status = _recommend_regen_status()
+    if not status["can_regenerate"]:
+        return JSONResponse({"error": status["reason"], **status}, status_code=403)
+
     from recommend.engine import RecommendEngine
     try:
         eng = RecommendEngine()

@@ -41,7 +41,9 @@
   button{background:linear-gradient(135deg,var(--accent),#2563eb);color:#fff;border:none;
     padding:11px 24px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;transition:.2s}
   button:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 6px 18px rgba(59,130,246,.35)}
-  button:disabled{opacity:.5;cursor:not-allowed}
+  button:disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.35)}
+  button:disabled:hover{transform:none;box-shadow:none;filter:grayscale(.35)}
+  .btn-tip-wrap{display:inline-flex;align-items:center;position:relative}
   .hint{color:var(--sub);font-size:13px}
   .card{background:linear-gradient(180deg,var(--panel2),#19212e);border:1px solid var(--line);
     border-radius:14px;padding:18px 20px;margin-bottom:16px}
@@ -382,7 +384,10 @@
         <option value="10">推荐 10 只</option>
       </select>
       <button onclick="doRecommend(false)">读取最新荐股</button>
-      <button onclick="doRecommend(true)" style="background:var(--gold);color:#000">重新生成（结算+反思+选股）</button>
+      <span class="btn-tip-wrap" id="rc-regen-wrap" title="每日 18:30 后才可使用，等待收盘后完整行情、资金流和龙虎榜数据。">
+        <button id="rc-regen-btn" onclick="doRecommend(true)" style="background:var(--gold);color:#000">重新生成（结算+反思+选股）</button>
+      </span>
+      <span class="hint" id="rc-regen-tip"></span>
       <label class="hint" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer">
         <input type="checkbox" id="rc-fib50"> 仅回踩黄金50%
       </label>
@@ -393,7 +398,7 @@
         <option value="">选择日期查看以往荐股…</option>
       </select>
       <button onclick="loadHistoryDates()" style="background:var(--panel2)">刷新列表</button>
-      <span class="hint">基于前一日数据选股｜已过滤科创板688/创业板300｜昨日胜率&lt;70%自动反思迭代</span>
+      <span class="hint">基于今日收盘后完整数据选次日票｜18:30 后开放重新生成｜昨日胜率&lt;70%自动反思迭代</span>
     </div>
     <div id="rc-board"></div>
     <div id="rc-result"></div>
@@ -458,6 +463,8 @@ async function loadStrategies(){
 }
 loadStrategies();
 loadHistoryDates();
+refreshRecommendGate();
+setInterval(refreshRecommendGate, 60 * 1000);
 loadScreenerTemplates();
 loadValueDates();
 
@@ -960,7 +967,36 @@ async function loadValueHistory(id){
 }
 
 // 每日荐股 + 反思
+function setRecommendRegenState(st){
+  const btn = $('rc-regen-btn');
+  const wrap = $('rc-regen-wrap');
+  const tip = $('rc-regen-tip');
+  if(!btn) return;
+  const can = !!(st && st.can_regenerate);
+  const msg = can
+    ? `已开放：当前可基于完整收盘数据重新生成。下一次限制窗口将于 ${st.next_unlock_time || '明日'} 前生效。`
+    : `${(st&&st.reason)||'每日荐股需要等待收盘后完整行情、资金流与龙虎榜数据。'} 当前不可重新生成，将于 ${st&&st.unlock_time ? st.unlock_time : '今日 18:30'} 开放。`;
+  btn.disabled = !can;
+  btn.dataset.locked = can ? '0' : '1';
+  btn.title = msg;
+  if(wrap) wrap.title = msg;
+  if(tip) tip.textContent = can ? '✅ 今日完整数据已就绪，可重新生成' : `🔒 ${st&&st.configured_time ? st.configured_time : '18:30'} 后可重新生成（等待龙虎榜/完整收盘数据）`;
+}
+
+async function refreshRecommendGate(){
+  try{
+    const st = await api('/api/recommend/status');
+    setRecommendRegenState(st);
+  }catch(e){
+    setRecommendRegenState({can_regenerate:false, configured_time:'18:30', unlock_time:'今日 18:30'});
+  }
+}
+
 async function doRecommend(regen){
+  if(regen && $('rc-regen-btn') && $('rc-regen-btn').disabled){
+    $('rc-result').innerHTML = `<div class="card hint">${$('rc-regen-wrap')?.title || '每日 18:30 后才能重新生成荐股。'}</div>`;
+    return;
+  }
   const cnt = $('rc-count').value;
   $('rc-board').innerHTML = '';
   $('rc-result').innerHTML = loading(regen

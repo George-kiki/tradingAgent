@@ -43,7 +43,7 @@ class Settings:
     # ---- 定时任务 ----
     select_push_time: str = os.getenv("SELECT_PUSH_TIME", "09:00")
     review_push_time: str = os.getenv("REVIEW_PUSH_TIME", "15:30")
-    recommend_push_time: str = os.getenv("RECOMMEND_PUSH_TIME", "08:30")
+    recommend_push_time: str = os.getenv("RECOMMEND_PUSH_TIME", "18:30")
 
     # ---- 每日荐股 + 反思迭代 ----
     recommend_count: int = int(os.getenv("REC_COUNT", "5"))            # 每日推荐数量
