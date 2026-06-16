@@ -33,6 +33,36 @@
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
     padding:24px;margin-bottom:20px;display:none;box-shadow:var(--shadow)}
   .panel.active{display:block;animation:fade .35s ease}
+  /* 复盘子页签 */
+  .rv-subtabs{display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:12px}
+  .rv-subtab{padding:8px 16px;border-radius:10px;cursor:pointer;color:var(--sub);
+    font-size:13.5px;font-weight:600;background:var(--bg);border:1px solid var(--line);transition:.2s}
+  .rv-subtab:hover{color:var(--txt);border-color:var(--accent2)}
+  .rv-subtab.active{background:linear-gradient(135deg,var(--accent),#2563eb);color:#fff;border-color:var(--accent)}
+  .rv-pane{display:none;animation:fade .3s ease}
+  .rv-pane.active{display:block}
+  /* 历史复盘列表 */
+  .rv-list{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+  .rv-item{display:flex;align-items:center;gap:14px;background:var(--bg);border:1px solid var(--line);
+    border-radius:12px;padding:14px 16px;transition:.2s}
+  .rv-item:hover{border-color:var(--accent2);transform:translateY(-1px)}
+  .rv-item .rv-date{font-size:15px;font-weight:800;color:var(--txt);min-width:104px}
+  .rv-item .rv-metrics{flex:1;display:flex;flex-wrap:wrap;gap:6px}
+  .rv-chip{font-size:11.5px;padding:2px 9px;border-radius:9px;background:rgba(255,255,255,.05);color:#cbd5e1}
+  .rv-chip b{font-weight:700}
+  .rv-item .rv-acts{display:flex;gap:8px;flex-shrink:0}
+  .rv-acts button,.rv-acts a{font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--txt);cursor:pointer;text-decoration:none;display:inline-block}
+  .rv-acts .rv-del{color:var(--red);border-color:rgba(248,81,73,.4)}
+  /* 多日对比 */
+  .rv-picker{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px}
+  .rv-day{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:10px;
+    border:1px solid var(--line);background:var(--bg);cursor:pointer;font-size:13px;user-select:none}
+  .rv-day:hover{border-color:var(--accent2)}
+  .rv-day.sel{background:rgba(59,130,246,.16);border-color:var(--accent);color:#fff;font-weight:700}
+  .rv-day.dim{opacity:.45;cursor:not-allowed}
+  .cmp-table th,.cmp-table td{text-align:center;white-space:nowrap}
+  .cmp-table td:first-child,.cmp-table th:first-child{text-align:left}
   @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
   input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
@@ -99,6 +129,23 @@
   .lv-mid{background:rgba(240,185,11,.18);color:var(--gold)}
   .lv-bad{background:rgba(246,70,93,.18);color:var(--red)}
   .lv-na{background:rgba(139,152,169,.15);color:var(--sub)}
+  /* UZI风格智能分析 */
+  .uzi-hero{display:flex;align-items:center;gap:24px;flex-wrap:wrap;background:linear-gradient(135deg,#1a2331,#141b25);border:1px solid var(--line);border-radius:18px;padding:22px 26px;margin-bottom:16px}
+  .uzi-name{font-size:22px;font-weight:900}.uzi-code{font-size:13px;color:var(--sub);font-weight:400;margin-left:6px}
+  .uzi-price{font-size:18px;font-weight:700;margin-top:6px}.uzi-score-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0 auto}
+  .uzi-score-ring{width:126px;height:126px;border-radius:50%;border:6px solid var(--vc);display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 26px -6px var(--vc)}
+  .uzi-score{font-size:42px;font-weight:950;line-height:1;color:var(--vc)}.uzi-score-lbl{font-size:11px;color:var(--sub)}
+  .uzi-verdict{font-size:15px;font-weight:850;padding:6px 18px;border-radius:22px;border:1px solid;background:var(--vc-bg);color:var(--vc)}
+  .uzi-minis{display:flex;gap:12px;flex-wrap:wrap}.uzi-mini{display:flex;flex-direction:column;align-items:center;min-width:54px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .uzi-mini b{font-size:20px}.uzi-mini span{font-size:11px;color:var(--sub)}
+  .uzi-formula{text-align:center;color:var(--sub);font-size:13px;margin:-6px 0 16px}.uzi-formula b{color:var(--gold)}
+  .jury-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}.judge-card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;border-left:3px solid var(--jc)}
+  .judge-head{display:flex;align-items:center;gap:8px}.judge-name{font-weight:800}.judge-school{font-size:10px;color:var(--sub);background:rgba(255,255,255,.06);border-radius:8px;padding:1px 7px}.judge-score{margin-left:auto;font-size:18px;font-weight:900;color:var(--jc)}
+  .judge-note{font-size:12.5px;margin-top:6px}.judge-hits{font-size:11.5px;color:var(--sub);padding-left:16px;margin-top:4px}
+  .divide-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}.divide-side{border-radius:12px;padding:14px 16px;border:1px solid var(--line)}.divide-side.bull{background:rgba(246,70,93,.07);border-color:rgba(246,70,93,.3)}.divide-side.bear{background:rgba(14,203,129,.07);border-color:rgba(14,203,129,.3)}.divide-vs{font-size:24px;font-weight:950;color:var(--gold)}
+  @media(max-width:760px){.divide-grid{grid-template-columns:1fr}.divide-vs{text-align:center}}
+  .val-top{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}.val-box{flex:1;min-width:130px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center}.val-box .num{font-size:22px;font-weight:900}.val-box .lbl{font-size:11.5px;color:var(--sub)}
+  .heatmap td,.heatmap th{text-align:center;font-size:12px}.scenario-grid{display:flex;gap:12px;flex-wrap:wrap}.scenario-card{flex:1;min-width:160px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px}.scenario-card .v{font-size:20px;font-weight:900}
   /* 选股卡片 */
   .pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
   .pick-card{background:linear-gradient(180deg,var(--panel2),#19212e);border:1px solid var(--line);
@@ -406,11 +453,44 @@
 
   <!-- 盘后复盘 -->
   <div class="panel" id="p-review">
-    <div class="row">
-      <button onclick="doReview()">生成今日复盘</button>
-      <span class="hint">按 config/review.json 配置的复盘模式组装（大盘/广度/热点/自选/持仓/AI总结）</span>
+    <div class="rv-subtabs">
+      <div class="rv-subtab active" data-rvtab="today" onclick="switchRvTab('today')">📝 今日复盘</div>
+      <div class="rv-subtab" data-rvtab="history" onclick="switchRvTab('history')">🗂️ 历史复盘</div>
+      <div class="rv-subtab" data-rvtab="compare" onclick="switchRvTab('compare')">📊 多日对比</div>
     </div>
-    <div id="r-result"></div>
+
+    <!-- 子页：今日复盘 -->
+    <div class="rv-pane active" id="rv-today">
+      <div class="row">
+        <button onclick="doReview()">生成今日复盘</button>
+        <span class="hint">按 config/review.json 配置组装九大板块；生成后自动归档，可在「历史复盘」查看与导出</span>
+      </div>
+      <div id="r-result"></div>
+    </div>
+
+    <!-- 子页：历史复盘 -->
+    <div class="rv-pane" id="rv-history">
+      <div class="row">
+        <button onclick="loadReviewHistory()">刷新历史列表</button>
+        <span class="hint">浏览过往所有复盘记录；点击查看详情，可单独导出为独立 HTML</span>
+      </div>
+      <div id="rv-history-list"></div>
+      <div id="rv-detail"></div>
+    </div>
+
+    <!-- 子页：多日对比 -->
+    <div class="rv-pane" id="rv-compare">
+      <div class="row" style="flex-wrap:wrap;align-items:flex-start;gap:10px">
+        <span class="hint">勾选 2~7 个相邻工作日的复盘进行多维对比（时间范围最长近一周）：</span>
+      </div>
+      <div id="rv-compare-picker" class="rv-picker"></div>
+      <div class="row">
+        <button onclick="doReviewCompare()">开始对比分析</button>
+        <button onclick="loadCompareDates()" style="background:var(--panel)">刷新可选日期</button>
+        <span class="hint" id="rv-compare-tip">已选 0 天</span>
+      </div>
+      <div id="rv-compare-result"></div>
+    </div>
   </div>
 
   <!-- 选股 -->
@@ -476,7 +556,7 @@ async function doAnalyze(){
   try{
     // 并行拉取分析结果与K线数据
     const [r, k] = await Promise.all([
-      api('/api/analyze?symbol='+sym),
+      api('/api/analyze/report?symbol='+sym),
       api('/api/kline?symbol='+sym+'&days=120').catch(()=>null)
     ]);
     if(r.error){ $('a-result').innerHTML = `<div class="card down">错误：${r.error}</div>`; return; }
@@ -491,33 +571,103 @@ function actionClass(a){
   return 'action-hold';
 }
 
+function renderJuryBlock(r){
+  const jury = r.jury || {}, judges = jury.judges || [];
+  if(!judges.length) return '';
+  const light = {bull:['🟢','#0ecb81','看多'],bear:['🔴','#f6465d','看空'],neutral:['⚪','#8b949e','中性']};
+  let html = `<div class="sec-title">🏛️ 投资大佬评审团 <span class="hint" style="font-weight:400">${(jury.stats||{}).active||0}位 · 共识分 ${jury.consensus??'-'}</span></div><div class="jury-grid">`;
+  judges.forEach(j=>{
+    const L = light[j.light] || light.neutral;
+    html += `<div class="judge-card" style="--jc:${L[1]}">
+      <div class="judge-head"><span>${L[0]}</span><span class="judge-name">${j.name}</span><span class="judge-school">${j.school}</span><span class="judge-score">${j.score}</span></div>
+      <div class="judge-note">${j.note||''}</div>
+      ${(j.hits&&j.hits.length)?`<ul class="judge-hits">${j.hits.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}
+    </div>`;
+  });
+  html += `</div>`;
+  const dv = jury.divide;
+  if(dv && dv.bull && dv.bear){
+    html += `<div class="sec-title">⚔️ 多空大分歧 <span class="hint" style="font-weight:400">THE GREAT DIVIDE</span></div>
+    <div class="divide-grid">
+      <div class="divide-side bull"><b>🐂 最看多 · ${dv.bull.name} <span class="hint">${dv.bull.score}分</span></b><div style="margin-top:6px">${dv.bull.note||''}</div>${(dv.bull.hits||[]).length?`<ul style="padding-left:18px;margin-top:6px;color:var(--sub);font-size:12px">${dv.bull.hits.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}</div>
+      <div class="divide-vs">VS</div>
+      <div class="divide-side bear"><b>🐻 最看空 · ${dv.bear.name} <span class="hint">${dv.bear.score}分</span></b><div style="margin-top:6px">${dv.bear.note||''}</div>${(dv.bear.hits||[]).length?`<ul style="padding-left:18px;margin-top:6px;color:var(--sub);font-size:12px">${dv.bear.hits.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}</div>
+    </div>`;
+  }
+  return html;
+}
+
+function renderValuationBlock(v){
+  if(!v || !v.available) return `<div class="sec-title">💰 DCF估值</div><div class="card hint">${(v&&v.note)||'估值数据不足'}</div>`;
+  const upcls = x => (+x>=0?'up':'down');
+  const pct = x => (x==null?'-':(`${+x>=0?'+':''}${x}%`));
+  let html = `<div class="sec-title">💰 DCF估值与IC三情景 <span class="hint" style="font-weight:400">${v.note||''}</span></div>
+  <div class="val-top">
+    <div class="val-box"><div class="num">${v.intrinsic_value}</div><div class="lbl">内在价值/股</div></div>
+    <div class="val-box"><div class="num ${upcls(v.upside)}">${pct(v.upside)}</div><div class="lbl">较现价空间</div></div>
+    <div class="val-box"><div class="num">${v.verdict}</div><div class="lbl">估值判断</div></div>
+    <div class="val-box"><div class="num">${v.weighted_target}</div><div class="lbl">概率加权目标</div></div>
+  </div>`;
+  const hm=v.heatmap||{}, rows=hm.values||[], waccs=hm.waccs||[], gs=hm.term_gs||[];
+  if(rows.length){
+    html += `<h3>5×5 敏感性热力图</h3><table class="heatmap"><tr><th>WACC＼g</th>${gs.map(g=>`<th>${g}%</th>`).join('')}</tr>`;
+    rows.forEach((row,i)=>{ html += `<tr><td>${waccs[i]}%</td>` + row.map(val=>{
+      const u = v.price ? (val/v.price-1)*100 : 0;
+      const bg = u>=30?'#1a7f37':u>=10?'#2ea043':u>=-10?'#9e6a03':u>=-30?'#bd561d':'#b62324';
+      return `<td style="background:${bg};color:#fff">${val??'-'}</td>`;
+    }).join('') + `</tr>`; });
+    html += `</table>`;
+  }
+  if(v.scenarios&&v.scenarios.length){
+    html += `<h3>IC投委会三情景</h3><div class="scenario-grid">` + v.scenarios.map(s=>`<div class="scenario-card"><div style="font-weight:800">${s.label} <span class="hint">概率 ${Math.round((s.prob||0)*100)}%</span></div><div class="v">${s.value} <span class="${upcls(s.upside)}">${pct(s.upside)}</span></div><div class="hint">增长 ${s.growth}% · WACC ${s.wacc}%</div></div>`).join('') + `</div>`;
+  }
+  return html;
+}
+
 function renderAnalyze(r, k){
   const d = r.decision||{}, snap=r.snapshot||{}, q=r.quant_consensus||{};
   const conf = parseInt(d.confidence)||0;
   const chg = snap.change_pct||0;
 
-  // 顶部标题 + 决策结论
+  // UZI风格：大号评分 + 评审团灯阵 + 多空分歧 + DCF热力图
+  const verdict = r.verdict || {};
+  const vc = verdict.tone==='buy' ? '#0ecb81' : verdict.tone==='sell' ? '#f6465d' : '#f0b90b';
+  const stats = (r.jury||{}).stats || {};
   let html = `
-  <div class="card">
-    <h3>${r.name}（${r.symbol}）
-      <span class="hint">${r.llm_enabled?'🤖 多智能体模式 · DeepSeek V4 Pro':'纯量化模式(未配置LLM)'}</span>
-    </h3>
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px">
-      <span class="action-pill ${actionClass(d.action)}">${d.action||'-'}</span>
-      <div style="flex:1;min-width:180px">
-        <div class="hint">信心指数 ${conf}</div>
-        <div class="conf-bar"><div class="conf-fill" style="width:${conf}%"></div></div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:22px;font-weight:700">${snap.close??'-'}</div>
-        <div class="${chg>=0?'up':'down'}">${chg>=0?'▲':'▼'} ${chg}%</div>
-      </div>
+  <div class="uzi-hero" style="--vc:${vc};--vc-bg:${vc}22">
+    <div>
+      <div class="uzi-name">${r.name} <span class="uzi-code">${r.symbol}</span></div>
+      <div class="uzi-price">${snap.close??'-'} <span class="${chg>=0?'up':'down'}">${chg>=0?'▲':'▼'} ${chg}%</span></div>
+      <div class="hint" style="margin-top:4px">${r.llm_enabled?'🤖 多智能体模式 · DeepSeek V4 Pro':'规则评审团 + 纯量化模式'}</div>
     </div>
+    <div class="uzi-score-wrap">
+      <div class="uzi-score-ring"><div class="uzi-score">${r.overall_score??'-'}</div><div class="uzi-score-lbl">综合评分</div></div>
+      <div class="uzi-verdict">${verdict.emoji||''} ${verdict.label||'-'}</div>
+    </div>
+    <div class="uzi-minis">
+      <div class="uzi-mini"><b class="up">${stats.bull||0}</b><span>看多</span></div>
+      <div class="uzi-mini"><b>${stats.neutral||0}</b><span>中性</span></div>
+      <div class="uzi-mini"><b class="down">${stats.bear||0}</b><span>看空</span></div>
+      <div class="uzi-mini"><b>${r.fund_score??'-'}</b><span>基本面</span></div>
+      <div class="uzi-mini"><b>${r.consensus_score??'-'}</b><span>共识</span></div>
+    </div>
+  </div>
+  <div class="uzi-formula">overall = fund_score × 0.6 + consensus × 0.4 = <b>${r.overall_score??'-'}</b>
+    ${r.report_record?`<a href="/api/analyze/export?id=${r.report_record.id}" download style="margin-left:12px;color:var(--accent2);font-weight:700">导出HTML报告</a>`:''}
+  </div>`;
+
+  html += renderJuryBlock(r);
+  html += renderValuationBlock(r.valuation||{});
+
+  // 传统决策摘要（保留原智能分析信息）
+  html += `
+  <div class="card">
+    <h3>🎯 交易决策摘要 <span class="hint">${d.mode||'multi_factor'}</span></h3>
     <div class="decision">
+      <div class="metric"><div class="v">${d.action||'-'}</div><div class="l">AI动作</div></div>
+      <div class="metric"><div class="v">${conf}</div><div class="l">信心指数</div></div>
       <div class="metric"><div class="v">${d.target_price||'-'}</div><div class="l">目标价</div></div>
       <div class="metric"><div class="v">${d.stop_loss||'-'}</div><div class="l">止损位</div></div>
-      <div class="metric"><div class="v">${d.position||'-'}</div><div class="l">建议仓位</div></div>
-      <div class="metric"><div class="v">${d.horizon||'-'}</div><div class="l">操作周期</div></div>
       <div class="metric"><div class="v">${q.avg_score??'-'}</div><div class="l">量化评分</div></div>
     </div>
     <p style="margin-top:6px">💡 ${d.summary||''}</p>
@@ -1254,19 +1404,198 @@ function renderRecommend(r, isHistory){
   });
 }
 
-// 盘后复盘
-async function doReview(){
-  $('r-result').innerHTML = loading('生成复盘中，可能需要 30-90 秒...');
-  const r = await api('/api/review');
-  if(r.error){ $('r-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
-  $('r-result').innerHTML='';
+// ===================== 盘后复盘 =====================
+function switchRvTab(name){
+  document.querySelectorAll('.rv-subtab').forEach(t=>t.classList.toggle('active', t.dataset.rvtab===name));
+  document.querySelectorAll('.rv-pane').forEach(p=>p.classList.remove('active'));
+  $('rv-'+name).classList.add('active');
+  if(name==='history') loadReviewHistory();
+  if(name==='compare') loadCompareDates();
+}
+
+function rvIframe(container, html){
+  container.innerHTML='';
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'width:100%;border:none;border-radius:10px;min-height:800px;background:#0d1117;';
-  iframe.srcdoc = r.html;
-  iframe.onload = ()=>{
-    try{ iframe.style.height = (iframe.contentWindow.document.body.scrollHeight + 40) + 'px'; }catch(e){}
-  };
-  $('r-result').appendChild(iframe);
+  iframe.srcdoc = html;
+  iframe.onload = ()=>{ try{ iframe.style.height = (iframe.contentWindow.document.body.scrollHeight + 40) + 'px'; }catch(e){} };
+  container.appendChild(iframe);
+}
+
+// 1) 今日复盘：生成并自动归档
+async function doReview(){
+  $('r-result').innerHTML = loading('生成复盘中，需采集全市场行情/涨停跌停历史/外盘等，首次可能需要数分钟，请耐心等待...');
+  const r = await api('/api/review');
+  if(r.error){ $('r-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
+  rvIframe($('r-result'), r.html);
+  const tip = r.record ? `<div class="hint" style="margin-top:8px">✅ 已归档（${r.date}），可在「历史复盘」查看或导出。</div>` : '';
+  if(tip) $('r-result').insertAdjacentHTML('beforeend', tip);
+}
+
+// 2) 历史复盘：列表 + 详情 + 导出 + 删除
+async function loadReviewHistory(){
+  $('rv-history-list').innerHTML = loading('读取历史复盘…');
+  $('rv-detail').innerHTML='';
+  const r = await api('/api/review/history');
+  if(r.error){ $('rv-history-list').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
+  const items = r.items||[];
+  if(!items.length){ $('rv-history-list').innerHTML=`<div class="card hint">暂无历史复盘，请先在「今日复盘」生成。</div>`; return; }
+  let html = '<div class="rv-list">';
+  items.forEach(it=>{
+    const shCls = (it.sh_pct>=0)?'up':'down';
+    const shTxt = (it.sh_index!=null)?`上证 ${it.sh_index} <span class="${shCls}">${it.sh_pct>=0?'+':''}${it.sh_pct??'-'}%</span>`:'';
+    const chips = [
+      shTxt?`<span class="rv-chip">${shTxt}</span>`:'',
+      (it.limit_up!=null)?`<span class="rv-chip">涨停 <b class="up">${it.limit_up}</b></span>`:'',
+      (it.limit_down!=null)?`<span class="rv-chip">跌停 <b class="down">${it.limit_down}</b></span>`:'',
+      (it.up!=null)?`<span class="rv-chip">涨跌 ${it.up}/${it.down}</span>`:'',
+      it.top_sector?`<span class="rv-chip">主线 <b>${it.top_sector}</b></span>`:'',
+    ].filter(Boolean).join('');
+    html += `<div class="rv-item">
+      <div class="rv-date">${it.date}</div>
+      <div class="rv-metrics">${chips||'<span class="hint">无指标快照</span>'}</div>
+      <div class="rv-acts">
+        <button onclick="viewReview('${it.id}')">查看</button>
+        <a href="/api/review/export?id=${it.id}" download>导出HTML</a>
+        <button class="rv-del" onclick="delReview('${it.id}')">删除</button>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  $('rv-history-list').innerHTML = html;
+}
+
+async function viewReview(id){
+  $('rv-detail').innerHTML = loading('加载复盘详情…');
+  const r = await api('/api/review/get?id='+encodeURIComponent(id));
+  if(r.error||r.empty){ $('rv-detail').innerHTML=`<div class="card down">${r.error||'记录不存在'}</div>`; return; }
+  $('rv-detail').innerHTML = `<div class="row" style="margin-top:14px">
+      <span class="hint">📄 ${r.date} 复盘详情</span>
+      <a href="/api/review/export?id=${id}" download style="margin-left:auto;font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);text-decoration:none">导出HTML</a>
+    </div>
+    <div id="rv-detail-frame"></div>`;
+  rvIframe($('rv-detail-frame'), r.html);
+  $('rv-detail').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function delReview(id){
+  if(!confirm('确认删除该复盘记录？')) return;
+  try{
+    const r = await fetch('/api/review/item?id='+encodeURIComponent(id), {method:'DELETE'}).then(x=>x.json());
+    if(r.error){ alert('删除失败：'+r.error); return; }
+  }catch(e){ alert('删除失败：'+e); return; }
+  loadReviewHistory();
+}
+
+// 3) 多日对比
+let rvSelectedDates = [];
+async function loadCompareDates(){
+  $('rv-compare-picker').innerHTML = loading('读取可对比日期…');
+  const r = await api('/api/review/history');
+  if(r.error){ $('rv-compare-picker').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
+  const items = (r.items||[]);
+  if(items.length<2){ $('rv-compare-picker').innerHTML=`<div class="card hint">可对比的复盘不足 2 天，请先多生成几天复盘。</div>`; return; }
+  rvSelectedDates = [];
+  let html='';
+  items.forEach(it=>{ html += `<div class="rv-day" data-date="${it.date}" onclick="toggleRvDay('${it.date}')">${it.date}</div>`; });
+  $('rv-compare-picker').innerHTML = html;
+  updateRvCompareTip();
+}
+
+function toggleRvDay(date){
+  const i = rvSelectedDates.indexOf(date);
+  if(i>=0){ rvSelectedDates.splice(i,1); }
+  else {
+    if(rvSelectedDates.length>=7){ alert('最多选择 7 天（最近一周）'); return; }
+    rvSelectedDates.push(date);
+  }
+  // 校验跨度≤7天
+  const sorted=[...rvSelectedDates].sort();
+  if(sorted.length>=2){
+    const span=(new Date(sorted[sorted.length-1])-new Date(sorted[0]))/86400000;
+    if(span>7){ rvSelectedDates.splice(rvSelectedDates.indexOf(date),1); alert('时间范围最长为最近一周（首尾不超过 7 天）'); return; }
+  }
+  document.querySelectorAll('#rv-compare-picker .rv-day').forEach(d=>{
+    d.classList.toggle('sel', rvSelectedDates.includes(d.dataset.date));
+  });
+  updateRvCompareTip();
+}
+
+function updateRvCompareTip(){
+  $('rv-compare-tip').textContent = `已选 ${rvSelectedDates.length} 天` + (rvSelectedDates.length<2?'（至少 2 天）':'');
+}
+
+async function doReviewCompare(){
+  if(rvSelectedDates.length<2){ alert('请至少选择 2 个相邻工作日'); return; }
+  const dates=[...rvSelectedDates].sort().join(',');
+  $('rv-compare-result').innerHTML = loading('多维度对比分析中…');
+  const r = await api('/api/review/compare?dates='+encodeURIComponent(dates));
+  if(r.error){ $('rv-compare-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+  renderReviewCompare(r);
+}
+
+function renderReviewCompare(r){
+  const rows=r.rows||[], s=r.series||{}, sm=r.summary||{};
+  // 对比表
+  const head = `<tr><th>维度</th>${rows.map(x=>`<th>${x.date}</th>`).join('')}</tr>`;
+  const metricRow=(label,key,fmt)=>`<tr><td>${label}</td>${rows.map(x=>{
+    let v=x[key]; if(v==null) return '<td class="hint">-</td>';
+    return `<td>${fmt?fmt(v,x):v}</td>`;
+  }).join('')}</tr>`;
+  const pctCell=(v)=>`<span class="${v>=0?'up':'down'}">${v>=0?'+':''}${v}%</span>`;
+  let table = `<div class="card"><h3 style="margin:0 0 10px">📊 多维对比（${sm.days} 天）</h3>
+    <table class="cmp-table">${head}
+      ${metricRow('上证指数','sh_index')}
+      ${metricRow('上证涨跌','sh_pct',pctCell)}
+      ${metricRow('涨停数','limit_up',(v)=>`<span class="up">${v}</span>`)}
+      ${metricRow('跌停数','limit_down',(v)=>`<span class="down">${v}</span>`)}
+      ${metricRow('平均涨幅','avg_pct',pctCell)}
+      ${metricRow('涨/跌家数','up',(v,x)=>`${v}/${x.down??'-'}`)}
+      ${metricRow('最强主线','top_sector',(v,x)=>`${v||'-'}${x.top_sector_pct!=null?` <span class="hint">+${x.top_sector_pct}%</span>`:''}`)}
+    </table></div>`;
+  // 趋势图（涨停跌停 + 上证涨跌幅）
+  const chart = cmpSvg(s);
+  // 变化摘要
+  const lud=sm.limit_up_delta, ldd=sm.limit_down_delta;
+  let verdict='';
+  if(lud!=null&&ldd!=null){
+    const warm = lud>0 || ldd<0;
+    verdict = `区间内涨停数变化 <b class="${lud>=0?'up':'down'}">${lud>=0?'+':''}${lud}</b>、跌停数变化 <b class="${ldd<=0?'up':'down'}">${ldd>=0?'+':''}${ldd}</b>，`
+      + (warm?'<span class="up">情绪整体回暖、赚钱效应改善</span>':'<span class="down">情绪整体降温、亏钱效应加大</span>')+'。';
+  }
+  const summary = `<div class="card card" style="margin-top:12px"><h3 style="margin:0 0 8px">🧭 区间变化摘要</h3>
+    <div style="font-size:14px;line-height:1.7">${verdict||'数据不足以判定趋势。'}
+    上证从首日 ${sm.sh_pct_first>=0?'+':''}${sm.sh_pct_first??'-'}% 到末日 ${sm.sh_pct_last>=0?'+':''}${sm.sh_pct_last??'-'}%。</div>
+    ${(sm.missing&&sm.missing.length)?`<div class="hint" style="margin-top:6px">⚠️ 缺少复盘的日期：${sm.missing.join('、')}（这些交易日未生成复盘）</div>`:''}
+  </div>`;
+  $('rv-compare-result').innerHTML = table + chart + summary;
+}
+
+// 多日对比 SVG 折线（涨停=红、跌停=绿）
+function cmpSvg(s){
+  const dates=s.dates||[]; if(dates.length<2) return '';
+  const ups=(s.limit_up||[]).map(v=>+v||0), downs=(s.limit_down||[]).map(v=>+v||0);
+  const W=820,H=240,pl=40,pr=16,pt=20,pb=36,iw=W-pl-pr,ih=H-pt-pb;
+  const vmax=Math.max(Math.max(...ups),Math.max(...downs),10)*1.15+1;
+  const n=dates.length;
+  const X=i=>pl+(n>1?iw*i/(n-1):0), Y=v=>pt+ih-ih*v/vmax;
+  const poly=arr=>arr.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  let grid='';
+  for(let g=0;g<5;g++){const gv=Math.round(vmax*g/4),gy=Y(gv);
+    grid+=`<line x1="${pl}" y1="${gy.toFixed(1)}" x2="${W-pr}" y2="${gy.toFixed(1)}" stroke="#21262d"/>`
+      +`<text x="${pl-6}" y="${(gy+4).toFixed(1)}" fill="#484f58" font-size="10" text-anchor="end">${gv}</text>`;}
+  let xl='';dates.forEach((d,i)=>{xl+=`<text x="${X(i).toFixed(1)}" y="${H-pb+16}" fill="#8b949e" font-size="10" text-anchor="middle">${d.slice(5)}</text>`;});
+  let pts='';ups.forEach((v,i)=>pts+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.5" fill="#f85149"/>`);
+  downs.forEach((v,i)=>pts+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.5" fill="#3fb950"/>`);
+  return `<div class="card"><h3 style="margin:0 0 8px">📈 涨停/跌停趋势对比</h3>
+  <svg viewBox="0 0 ${W} ${H}" width="100%" xmlns="http://www.w3.org/2000/svg">
+   ${grid}
+   <polyline points="${poly(ups)}" fill="none" stroke="#f85149" stroke-width="2"/>
+   <polyline points="${poly(downs)}" fill="none" stroke="#3fb950" stroke-width="2"/>
+   ${pts}${xl}
+   <rect x="${W-150}" y="${pt}" width="10" height="10" fill="#f85149"/><text x="${W-136}" y="${pt+9}" fill="#c9d1d9" font-size="11">涨停</text>
+   <rect x="${W-90}" y="${pt}" width="10" height="10" fill="#3fb950"/><text x="${W-76}" y="${pt+9}" fill="#c9d1d9" font-size="11">跌停</text>
+  </svg></div>`;
 }
 
 // 选股（卡片式）

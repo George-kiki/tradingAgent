@@ -5,7 +5,7 @@ import datetime as dt
 import os
 
 from fastapi import Body, FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from strategies.library import list_strategies
@@ -36,6 +36,67 @@ def api_analyze(symbol: str = Query(..., description="股票代码")):
     try:
         result = AgentOrchestrator().analyze(symbol)
         return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/analyze/report")
+def api_analyze_report(symbol: str = Query(..., description="股票代码")):
+    """生成个股深度分析（UZI 风格）并自动归档，返回结构化结果 + HTML + 记录。"""
+    from report.analysis_report import generate_and_store
+    try:
+        out = generate_and_store(symbol)
+        res = out["result"]
+        res["report_html"] = out["html"]
+        res["report_record"] = out["record"]
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/analyze/history")
+def api_analyze_history():
+    """历史深度分析报告列表。"""
+    from report.analysis_report import list_reports
+    try:
+        return {"items": list_reports()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/analyze/get")
+def api_analyze_get(id: str = Query(...)):
+    from report.analysis_report import get_report
+    try:
+        rec = get_report(id)
+        return rec if rec else {"empty": True}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.delete("/api/analyze/item")
+def api_analyze_delete(id: str = Query(...)):
+    from report.analysis_report import delete_report
+    try:
+        return {"deleted": delete_report(id)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/analyze/export")
+def api_analyze_export(id: str = Query(...)):
+    """导出某条深度分析为独立 HTML 文件（下载）。"""
+    from report.analysis_report import get_report
+    try:
+        rec = get_report(id)
+        if not rec:
+            return JSONResponse({"error": "报告不存在"}, status_code=404)
+        fname = f"analysis-{rec.get('symbol','report')}-{rec.get('created_at','')[:10]}.html"
+        return Response(
+            content=rec.get("html") or "",
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
@@ -104,9 +165,139 @@ def api_kline(symbol: str = Query(...), days: int = Query(120)):
 
 @app.get("/api/review")
 def api_review():
-    from review.html_report import generate_html_review
+    """生成今日复盘并自动落库（返回 HTML + 落库记录信息）。"""
+    from review.html_report import generate_and_store
     try:
-        return {"html": generate_html_review()}
+        res = generate_and_store(store=True)
+        return {"html": res["html"], "date": res.get("date"),
+                "record": res.get("record")}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review/history")
+def api_review_history():
+    """历史复盘列表（摘要 + 关键指标）。"""
+    from review.store import list_reviews
+    try:
+        return {"items": list_reviews()}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review/get")
+def api_review_get(id: str = Query(..., description="复盘记录 id")):
+    """按 id 查看复盘详情（含完整 HTML）。"""
+    from review.store import get_review
+    try:
+        rec = get_review(id)
+        if not rec:
+            return {"empty": True}
+        return rec
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.delete("/api/review/item")
+def api_review_delete(id: str = Query(...)):
+    from review.store import delete_review
+    try:
+        return {"deleted": delete_review(id)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review/export")
+def api_review_export(id: str = Query(..., description="复盘记录 id")):
+    """将某条复盘导出为独立可读的 HTML 文件（浏览器直接下载）。"""
+    from review.store import get_review
+    try:
+        rec = get_review(id)
+        if not rec:
+            return JSONResponse({"error": "复盘记录不存在"}, status_code=404)
+        html = rec.get("html") or ""
+        fname = f"review-{rec.get('date','report')}.html"
+        return Response(
+            content=html,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review/compare")
+def api_review_compare(dates: str = Query(..., description="逗号分隔的日期 YYYY-MM-DD")):
+    """多日复盘多维度对比分析。
+
+    约束：时间范围最长近一周（最多 7 天跨度），最少须选 2 个相邻工作日。
+    返回各日的结构化指标对齐序列 + 维度变化摘要，供前端画对比表/趋势图。
+    """
+    from review.store import reviews_by_dates
+    try:
+        sel = [d.strip() for d in (dates or "").split(",") if d.strip()]
+        sel = sorted(set(sel))
+        if len(sel) < 2:
+            return JSONResponse({"error": "至少选择 2 个相邻工作日进行对比"}, status_code=400)
+        # 最长近一周：首尾日期跨度不超过 7 个自然日
+        d0 = dt.datetime.strptime(sel[0], "%Y-%m-%d").date()
+        d1 = dt.datetime.strptime(sel[-1], "%Y-%m-%d").date()
+        if (d1 - d0).days > 7:
+            return JSONResponse({"error": "时间范围最长为最近一周（不超过 7 天跨度）"}, status_code=400)
+
+        recs = reviews_by_dates(sel)
+        found = {r["date"] for r in recs}
+        missing = [d for d in sel if d not in found]
+        if len(recs) < 2:
+            return JSONResponse(
+                {"error": f"所选日期中可用复盘不足 2 天（缺少：{', '.join(missing) or '—'}）。"
+                          "请先在这些交易日生成并保存复盘。"},
+                status_code=400)
+
+        # 对齐序列
+        series = {"dates": [], "sh_index": [], "sh_pct": [],
+                  "limit_up": [], "limit_down": [], "avg_pct": [],
+                  "up": [], "down": [], "top_sector": []}
+        rows = []
+        for r in recs:
+            m = r.get("metrics") or {}
+            b = m.get("breadth") or {}
+            idx = m.get("indices") or []
+            sh = next((i for i in idx if i.get("name") == "上证指数"), {})
+            top = (m.get("top_sectors") or [{}])[0]
+            series["dates"].append(r["date"])
+            series["sh_index"].append(sh.get("price"))
+            series["sh_pct"].append(sh.get("pct"))
+            series["limit_up"].append(b.get("limit_up"))
+            series["limit_down"].append(b.get("limit_down"))
+            series["avg_pct"].append(b.get("avg_pct"))
+            series["up"].append(b.get("up"))
+            series["down"].append(b.get("down"))
+            series["top_sector"].append(top.get("name"))
+            rows.append({
+                "date": r["date"],
+                "sh_index": sh.get("price"), "sh_pct": sh.get("pct"),
+                "limit_up": b.get("limit_up"), "limit_down": b.get("limit_down"),
+                "avg_pct": b.get("avg_pct"), "up": b.get("up"), "down": b.get("down"),
+                "top_sector": top.get("name"), "top_sector_pct": top.get("pct"),
+            })
+
+        # 维度变化摘要（首日 -> 末日）
+        def _delta(key):
+            a, z = series[key][0], series[key][-1]
+            if isinstance(a, (int, float)) and isinstance(z, (int, float)):
+                return round(z - a, 2)
+            return None
+
+        summary = {
+            "limit_up_delta": _delta("limit_up"),
+            "limit_down_delta": _delta("limit_down"),
+            "sh_pct_first": series["sh_pct"][0],
+            "sh_pct_last": series["sh_pct"][-1],
+            "days": len(recs),
+            "missing": missing,
+        }
+        return {"dates": sel, "rows": rows, "series": series, "summary": summary}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

@@ -775,35 +775,72 @@ class DataFetcher:
         return cached_call(key, _fetch, ttl=21600) or []
 
     def get_index_spot(self) -> list[dict]:
-        """主要指数实时行情（上证/深成/创业板/沪深300）。"""
-        _require_ak()
+        """主要指数实时行情（上证/深成/创业板/沪深300/科创50）。
 
-        def _fetch():
-            try:
-                df = ak.stock_zh_index_spot_em(symbol="指数成份")
-            except Exception:
-                try:
-                    df = ak.stock_zh_index_spot_em()
-                except Exception:
-                    return []
+        数据源优先级：① 东财(stock_zh_index_spot_em) ② 新浪(stock_zh_index_spot_sina)。
+        含点位合理性校验：东财限流/脏数据（点位明显异常）时自动切换新浪源，避免出现
+        “上证3324”这类与实盘对不上的错误点位。
+        """
+        _require_ak()
+        wanted = {"上证指数", "深证成指", "创业板指", "沪深300", "科创50"}
+        # 各指数点位合理下限（低于此值判为脏数据/错列）
+        _floor = {"上证指数": 2500, "深证成指": 7000, "创业板指": 1500,
+                  "沪深300": 3000, "科创50": 800}
+
+        def _parse(df) -> list[dict]:
             if df is None or df.empty:
                 return []
-            wanted = {"上证指数", "深证成指", "创业板指", "沪深300", "科创50"}
-            name_col = next((c for c in df.columns if "名称" in c), None)
+            name_col = next((c for c in df.columns if c in ("名称", "指数名称")), None) \
+                or next((c for c in df.columns if "名称" in c), None)
             pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
-            price_col = next((c for c in df.columns if c in ("最新价", "最新")), None)
+            # 价列优先精确匹配“最新价”，再退“最新/收盘”，避免选到“年初至今”等百分比列
+            price_col = next((c for c in df.columns if c == "最新价"), None) \
+                or next((c for c in df.columns if c in ("最新", "收盘", "收盘价")), None)
             if not name_col:
                 return []
-            out = []
+            out, seen = [], set()
             for _, row in df.iterrows():
-                nm = str(row[name_col])
-                if nm in wanted:
-                    out.append({
-                        "name": nm,
-                        "price": float(pd.to_numeric(row[price_col], errors="coerce") or 0) if price_col else None,
-                        "pct": round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2) if pct_col else None,
-                    })
+                nm = str(row[name_col]).strip()
+                if nm not in wanted or nm in seen:  # 去重（如沪深300在新浪源有两条）
+                    continue
+                price = float(pd.to_numeric(row[price_col], errors="coerce") or 0) if price_col else None
+                # 点位合理性校验：明显偏低视为脏数据，丢弃该源
+                if price is not None and price < _floor.get(nm, 0):
+                    return []
+                seen.add(nm)
+                out.append({
+                    "name": nm,
+                    "price": price,
+                    "pct": round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2) if pct_col else None,
+                })
             return out
+
+        def _fetch():
+            # 主源：东财（两种 symbol 分类各试一次）
+            def _em_default():
+                return ak.stock_zh_index_spot_em()
+
+            def _em_member():
+                return ak.stock_zh_index_spot_em(symbol="指数成份")
+
+            for caller in (_em_member, _em_default):
+                try:
+                    df = _retry(caller, retries=2)
+                    res = _parse(df)
+                    if res:
+                        return res
+                except Exception:
+                    pass
+            # 备用源：新浪（点位稳定可靠）
+            try:
+                df = _retry(lambda: ak.stock_zh_index_spot_sina(), retries=2)
+                res = _parse(df)
+                if res:
+                    print("[指数] 东财限流，已切换新浪源获取指数点位")
+                    return res
+            except Exception:
+                pass
+            return []
 
         return cached_call("index_spot", _fetch, ttl=600) or []
 
@@ -826,6 +863,135 @@ class DataFetcher:
         df = df.rename(columns={"date": "date"})
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         return df.tail(days).reset_index(drop=True)
+
+    # ---------- 外盘指数（隔夜外围走势）----------
+    def get_global_indices(self) -> list[dict]:
+        """主要外盘指数行情（纳指/标普/道指/费城半导体/恒生/恒生科技/日经/KOSPI）。
+
+        用于复盘「外盘走势」段：隔夜欧美 + 早盘亚太对A股的情绪传导。
+        best-effort：东财外盘接口限流时返回空，由上层降级处理。
+        """
+        _require_ak()
+
+        def _fetch():
+            # 关注列表：name -> 别名（东财外盘名称可能不同）
+            wanted = {
+                "纳斯达克": "🇺🇸 纳斯达克", "标普500": "🇺🇸 标普500", "道琼斯": "🇺🇸 道琼斯",
+                "费城半导体": "🇺🇸 费城半导体", "恒生指数": "🇭🇰 恒生指数",
+                "恒生科技指数": "🇭🇰 恒生科技", "日经225": "🇯🇵 日经225",
+                "韩国KOSPI": "🇰🇷 KOSPI",
+            }
+            out: list[dict] = []
+            try:
+                df = _retry(lambda: ak.index_global_spot_em(), retries=2)
+            except Exception:
+                df = None
+            if df is not None and not df.empty:
+                name_col = next((c for c in df.columns if "名称" in c), None)
+                pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
+                price_col = next((c for c in df.columns if c in ("最新价", "最新", "收盘价")), None)
+                if name_col and pct_col:
+                    for _, row in df.iterrows():
+                        nm = str(row[name_col]).strip()
+                        for key_nm, disp in wanted.items():
+                            if key_nm in nm:
+                                out.append({
+                                    "name": disp,
+                                    "price": float(pd.to_numeric(row[price_col], errors="coerce") or 0) if price_col else None,
+                                    "pct": round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2),
+                                })
+                                break
+            # 去重（保留首个）
+            seen, uniq = set(), []
+            for x in out:
+                if x["name"] not in seen:
+                    seen.add(x["name"])
+                    uniq.append(x)
+            return uniq or None
+
+        return cached_call("global_indices", _fetch, ttl=1800) or []
+
+    # ---------- 涨停跌停近一月历史（画趋势图）----------
+    def get_limit_history(self, days: int = 22) -> list[dict]:
+        """近一个月每个交易日的涨停/跌停家数，用于画趋势线图。
+
+        返回 [{date, limit_up, limit_down}]（按日期升序）。
+        优先用东财「涨停股池/跌停股池」按日统计；接口不支持历史日则尽力取近 N 个交易日。
+        best-effort：限流/接口缺失时返回空列表。
+        """
+        _require_ak()
+        key = f"limit_history:{days}"
+
+        def _fetch():
+            # 取最近 days*2 自然日内的交易日
+            end = dt.date.today()
+            dates: list[str] = []
+            try:
+                cal = _retry(lambda: ak.tool_trade_date_hist_sina(), retries=2)
+                if cal is not None and not cal.empty:
+                    col = cal.columns[0]
+                    ser = pd.to_datetime(cal[col]).dt.date
+                    ser = ser[ser <= end].sort_values()
+                    dates = [d.strftime("%Y%m%d") for d in ser.tail(days)]
+            except Exception:
+                dates = []
+            if not dates:
+                # 退化：用日历近 days 个工作日（粗略）
+                d = end
+                while len(dates) < days:
+                    if d.weekday() < 5:
+                        dates.append(d.strftime("%Y%m%d"))
+                    d -= dt.timedelta(days=1)
+                dates = sorted(dates)
+
+            out: list[dict] = []
+            for ds in dates:
+                lu = ld = None
+                try:
+                    up_df = ak.stock_zt_pool_em(date=ds)
+                    lu = int(len(up_df)) if up_df is not None else None
+                except Exception:
+                    lu = None
+                try:
+                    dt_df = ak.stock_zt_pool_dtgc_em(date=ds)
+                    ld = int(len(dt_df)) if dt_df is not None else None
+                except Exception:
+                    ld = None
+                if lu is None and ld is None:
+                    continue
+                out.append({
+                    "date": f"{ds[4:6]}.{ds[6:8]}",
+                    "limit_up": lu if lu is not None else 0,
+                    "limit_down": ld if ld is not None else 0,
+                })
+            return out or None
+
+        return cached_call(key, _fetch, ttl=7200) or []
+
+    # ---------- 跌停/领跌个股（复盘跌停分析）----------
+    def get_limit_down_stocks(self, n: int = 12) -> list[dict]:
+        """当日跌停/领跌个股 [{code,name,pct,turnover}]（按跌幅降序）。"""
+        spot = self.get_market_spot()
+        if spot is None or spot.empty:
+            return []
+        code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+        name_col = next((c for c in spot.columns if c in ("名称", "name")), None)
+        pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+        turn_col = next((c for c in spot.columns if "换手" in c), None)
+        if not (code_col and pct_col):
+            return []
+        df = spot.copy()
+        df["_pct"] = pd.to_numeric(df[pct_col], errors="coerce")
+        downs = df[df["_pct"] <= -9.5].sort_values("_pct").head(n)
+        out = []
+        for _, row in downs.iterrows():
+            out.append({
+                "code": str(row[code_col]),
+                "name": str(row[name_col]) if name_col else "",
+                "pct": round(float(row["_pct"]), 2),
+                "turnover": round(float(pd.to_numeric(row.get(turn_col), errors="coerce") or 0), 2) if turn_col else None,
+            })
+        return out
 
 
 @lru_cache(maxsize=1)

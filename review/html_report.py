@@ -1,7 +1,12 @@
-"""HTML 复盘报告生成器（暗色卡片风格，模板同款）。
+"""HTML 复盘报告生成器（暗色卡片风格，对标 stock_review 模板）。
 
-产出四大板块：① 市场面 ② 板块面 ③ 个股面 ④ 次日计划（不含自身交易）。
-正文由 LLM 基于当日真实市场数据生成；LLM 不可用时降级为纯数据渲染。
+按九大板块产出完整盘后复盘（提示词遵循「George 复盘法」）：
+ 一、大盘总览        二、涨停跌停趋势(近一月折线图)   三、外盘与宏观
+ 四、板块题材梳理    五、涨停股深度分析(连板梯队)     六、跌停股分析
+ 七、龙虎榜与资金    八、交易复盘框架(赵老哥/刺客)    九、次日作战计划
+
+正文优先由 LLM 基于当日真实市场数据生成；LLM 不可用时降级为纯数据渲染。
+涨停跌停近一月趋势以内联 SVG 折线图呈现（不依赖外部图片）。
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ from data.fetcher import get_fetcher
 
 _WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
-# ---------------- HTML 骨架（CSS 取自复盘模板）----------------
+# ---------------- HTML 骨架（CSS 取自 stock_review 模板）----------------
 HTML_SKELETON = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -25,59 +30,141 @@ HTML_SKELETON = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{TITLE}} · {{DATE}}</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.7; padding: 20px; }
-.container { max-width: 900px; margin: 0 auto; }
-h1 { text-align: center; font-size: 28px; color: #f0f6fc; margin-bottom: 8px; letter-spacing: 2px; }
-.subtitle { text-align: center; color: #8b949e; font-size: 14px; margin-bottom: 30px; }
-h2 { font-size: 20px; color: #58a6ff; border-left: 4px solid #58a6ff; padding-left: 12px; margin: 28px 0 16px; }
-h3 { font-size: 16px; color: #f0f6fc; margin: 16px 0 10px; }
-.card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-.metric { text-align: center; padding: 14px 8px; background: #21262d; border-radius: 8px; border: 1px solid #30363d; }
-.metric .label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
-.metric .value { font-size: 22px; font-weight: 700; }
-.metric .change { font-size: 12px; margin-top: 2px; }
-.red { color: #f85149; }
-.green { color: #3fb950; }
-.yellow { color: #d29922; }
-.blue { color: #58a6ff; }
-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
-th { background: #21262d; color: #8b949e; font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 2px solid #30363d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-td { padding: 10px 12px; border-bottom: 1px solid #21262d; }
-tr:hover td { background: #1c2128; }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
-.tag-red { background: rgba(248,81,73,0.15); color: #f85149; }
-.tag-green { background: rgba(63,185,80,0.15); color: #3fb950; }
-.tag-yellow { background: rgba(210,153,34,0.15); color: #d29922; }
-.tag-blue { background: rgba(88,166,255,0.15); color: #58a6ff; }
-.summary-box { background: linear-gradient(135deg, #1a1f29, #161b22); border: 1px solid #30363d; border-radius: 10px; padding: 18px 20px; margin: 12px 0; }
-.summary-box .title { color: #d29922; font-weight: 700; font-size: 15px; margin-bottom: 8px; }
-ul { padding-left: 20px; }
-li { margin-bottom: 6px; font-size: 14px; }
-.section-icon { margin-right: 6px; }
-.divider { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
-.disclaimer { text-align: center; color: #484f58; font-size: 12px; margin-top: 30px; padding: 16px; border-top: 1px solid #21262d; }
-.emoji-big { font-size: 24px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.7; padding: 20px; max-width: 900px; margin: 0 auto; }
+  h1 { text-align: center; font-size: 24px; color: #58a6ff; margin: 20px 0 8px; letter-spacing: 2px; }
+  .subtitle { text-align: center; color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 18px; color: #79c0ff; border-left: 4px solid #58a6ff; padding-left: 12px; margin: 28px 0 14px; }
+  h3 { font-size: 15px; color: #d2a8ff; margin: 18px 0 10px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 20px; margin: 12px 0; }
+  .card-gold { border-left: 3px solid #f0b429; }
+  .card-red { border-left: 3px solid #f85149; }
+  .card-green { border-left: 3px solid #3fb950; }
+  .card-blue { border-left: 3px solid #58a6ff; }
+  .card-purple { border-left: 3px solid #d2a8ff; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .tag-red { background: #f8514922; color: #f85149; }
+  .tag-green { background: #3fb95022; color: #3fb950; }
+  .tag-blue { background: #58a6ff22; color: #58a6ff; }
+  .tag-gold { background: #f0b42922; color: #f0b429; }
+  .tag-purple { background: #d2a8ff22; color: #d2a8ff; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  th { background: #21262d; color: #8b949e; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #30363d; }
+  td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+  tr:hover td { background: #161b22; }
+  .red { color: #f85149; }
+  .green { color: #3fb950; }
+  .gold { color: #f0b429; }
+  .blue { color: #58a6ff; }
+  .dim { color: #8b949e; }
+  .big-num { font-size: 28px; font-weight: 700; }
+  .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+  .stat-box { flex: 1; min-width: 120px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+  .stat-box .label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .stat-box .value { font-size: 22px; font-weight: 700; }
+  ul, ol { padding-left: 20px; margin: 8px 0; }
+  li { margin: 4px 0; font-size: 14px; }
+  .divider { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
+  .highlight-box { background: linear-gradient(135deg, #1a1f2e 0%, #161b22 100%); border: 1px solid #f0b42944; border-radius: 10px; padding: 16px 20px; margin: 14px 0; }
+  .warn-box { background: #f851490d; border: 1px solid #f8514933; border-radius: 10px; padding: 16px 20px; margin: 14px 0; }
+  .chart-wrap { background: #0d1117; border-radius: 8px; padding: 10px; }
+  .footer { text-align: center; color: #484f58; font-size: 11px; margin-top: 36px; padding-top: 16px; border-top: 1px solid #21262d; }
+  .plan-table td:first-child { font-weight: 600; color: #79c0ff; }
+  .nope { text-decoration: line-through; color: #484f58; }
+  /* 强度徽章：分段进度条 + 文字（自适应，不再拥挤/重叠）*/
+  .strength-bar { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px;
+    border-radius: 20px; background: rgba(255,255,255,0.04); border: 1px solid #30363d;
+    font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap; vertical-align: middle; }
+  .strength-bar::before { content: ""; flex-shrink: 0; width: 44px; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--sb-color, #f0b429) var(--sb-fill, 60%), rgba(255,255,255,0.10) var(--sb-fill, 60%)); }
+  .s5 { color: #58a6ff; --sb-color: #58a6ff; --sb-fill: 100%; }
+  .s4 { color: #3fb950; --sb-color: #3fb950; --sb-fill: 80%; }
+  .s3 { color: #f0b429; --sb-color: #f0b429; --sb-fill: 60%; }
+  .s2 { color: #f08229; --sb-color: #f08229; --sb-fill: 40%; }
+  .s1 { color: #f85149; --sb-color: #f85149; --sb-fill: 20%; }
+  /* 表格列宽优化：避免强度/质量列过窄导致拥挤 */
+  td .strength-bar { margin: 0; }
 </style>
 </head>
 <body>
-<div class="container">
 
 <h1>📊 {{TITLE}}</h1>
-<div class="subtitle">{{SUBTITLE}}</div>
+<p class="subtitle">{{SUBTITLE}}</p>
 
 {{BODY}}
 
-<div class="disclaimer">
-  ⚠️ 本报告由 AI 系统基于公开市场数据自动生成，仅供参考学习，不构成任何投资建议。<br>
-  市场有风险，投资需谨慎。请根据自身风险承受能力独立决策。
+<div class="warn-box" style="text-align:center;">
+  ⚠️ <strong>风险提示</strong>：本报告由 AI 系统基于公开市场数据自动生成，仅供研究参考，不构成任何投资建议。股市有风险，入市需谨慎。
 </div>
 
+<div class="footer">
+  复盘时间：{{NOW}} ｜ 数据来源：{{SOURCE}}<br>
+  AI 盘后复盘 · George 复盘法
 </div>
+
 </body>
 </html>
 """
+
+
+# ---------------- 涨停跌停趋势 SVG 折线图 ----------------
+def _limit_trend_svg(history: list[dict]) -> str:
+    """把近一月涨停/跌停家数渲染成内联 SVG 双折线图（红=涨停、绿=跌停）。"""
+    if not history or len(history) < 2:
+        return ""
+    W, H = 840, 280
+    pad_l, pad_r, pad_t, pad_b = 40, 16, 20, 40
+    iw, ih = W - pad_l - pad_r, H - pad_t - pad_b
+    ups = [int(h.get("limit_up", 0) or 0) for h in history]
+    downs = [int(h.get("limit_down", 0) or 0) for h in history]
+    dates = [h.get("date", "") for h in history]
+    vmax = max(max(ups), max(downs), 10)
+    vmax = int(vmax * 1.15) + 1
+    n = len(history)
+
+    def _x(i: int) -> float:
+        return pad_l + (iw * i / (n - 1) if n > 1 else 0)
+
+    def _y(v: int) -> float:
+        return pad_t + ih - (ih * v / vmax)
+
+    def _poly(vals: list[int]) -> str:
+        return " ".join(f"{_x(i):.1f},{_y(v):.1f}" for i, v in enumerate(vals))
+
+    # 网格 + Y 轴刻度
+    grid = ""
+    for g in range(5):
+        gv = round(vmax * g / 4)
+        gy = _y(gv)
+        grid += (f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{W - pad_r}" y2="{gy:.1f}" '
+                 f'stroke="#21262d" stroke-width="1"/>'
+                 f'<text x="{pad_l - 6}" y="{gy + 4:.1f}" fill="#484f58" font-size="10" '
+                 f'text-anchor="end">{gv}</text>')
+
+    # X 轴标签（最多 8 个，避免拥挤）
+    step = max(1, n // 8)
+    xlabels = ""
+    for i in range(0, n, step):
+        xlabels += (f'<text x="{_x(i):.1f}" y="{H - pad_b + 16}" fill="#8b949e" '
+                    f'font-size="10" text-anchor="middle">{dates[i]}</text>')
+
+    # 数据点
+    pts = ""
+    for i, v in enumerate(ups):
+        pts += f'<circle cx="{_x(i):.1f}" cy="{_y(v):.1f}" r="2.5" fill="#f85149"/>'
+    for i, v in enumerate(downs):
+        pts += f'<circle cx="{_x(i):.1f}" cy="{_y(v):.1f}" r="2.5" fill="#3fb950"/>'
+
+    return f"""<div class="chart-wrap"><svg viewBox="0 0 {W} {H}" width="100%" xmlns="http://www.w3.org/2000/svg">
+  {grid}
+  <polyline points="{_poly(ups)}" fill="none" stroke="#f85149" stroke-width="2"/>
+  <polyline points="{_poly(downs)}" fill="none" stroke="#3fb950" stroke-width="2"/>
+  {pts}{xlabels}
+  <rect x="{W - 150}" y="{pad_t}" width="10" height="10" fill="#f85149"/>
+  <text x="{W - 136}" y="{pad_t + 9}" fill="#c9d1d9" font-size="11">涨停</text>
+  <rect x="{W - 90}" y="{pad_t}" width="10" height="10" fill="#3fb950"/>
+  <text x="{W - 76}" y="{pad_t + 9}" fill="#c9d1d9" font-size="11">跌停</text>
+</svg></div>"""
 
 
 # ---------------- 数据收集 ----------------
@@ -107,7 +194,8 @@ def _top_limit_up(spot: pd.DataFrame, n: int = 15) -> list[dict]:
 
 def _collect_data(fetcher) -> dict:
     """尽力收集复盘所需的当日真实数据，单项失败不影响其余。"""
-    data: dict = {"indices": [], "breadth": {}, "sectors": [], "limit_up": [], "lhb_top": []}
+    data: dict = {"indices": [], "breadth": {}, "sectors": [], "limit_up": [],
+                  "limit_down": [], "lhb_top": [], "global": [], "limit_history": []}
     try:
         data["indices"] = fetcher.get_index_spot()
     except Exception:
@@ -117,11 +205,23 @@ def _collect_data(fetcher) -> dict:
     except Exception:
         pass
     try:
-        data["sectors"] = fetcher.get_hot_sectors(limit=12)
+        data["sectors"] = fetcher.get_hot_sectors(limit=14)
     except Exception:
         pass
     try:
         data["limit_up"] = _top_limit_up(fetcher.get_market_spot(), n=15)
+    except Exception:
+        pass
+    try:
+        data["limit_down"] = fetcher.get_limit_down_stocks(n=12)
+    except Exception:
+        pass
+    try:
+        data["global"] = fetcher.get_global_indices()
+    except Exception:
+        pass
+    try:
+        data["limit_history"] = fetcher.get_limit_history(days=15)
     except Exception:
         pass
     try:
@@ -154,6 +254,14 @@ def _data_to_facts(data: dict) -> str:
             f"涨停{b.get('limit_up')}家/跌停{b.get('limit_down')}家；"
             f"全市场平均涨幅{b.get('avg_pct')}%（中位数{b.get('median_pct')}%）"
         )
+    if data.get("limit_history"):
+        h = data["limit_history"]
+        recent = h[-6:]
+        trend = "、".join(f"{x['date']}(涨{x['limit_up']}/跌{x['limit_down']})" for x in recent)
+        lines.append(f"【涨停跌停近期趋势】{trend}")
+    if data.get("global"):
+        g_txt = "；".join(f"{x['name']} {x.get('pct')}%" for x in data["global"])
+        lines.append(f"【外盘指数】{g_txt}")
     if data.get("sectors"):
         sec_txt = "；".join(f"{s['name']} {s['pct']}%（领涨 {s.get('leader','-')}）" for s in data["sectors"])
         lines.append(f"【行业板块涨幅榜】{sec_txt}")
@@ -162,6 +270,9 @@ def _data_to_facts(data: dict) -> str:
         lines.append(f"【今日涨停/领涨个股】{lu_txt}")
     else:
         lines.append("【今日涨停个股】数据暂缺，请基于板块表现做定性分析")
+    if data.get("limit_down"):
+        ld_txt = "、".join(f"{p['name']}({p['code']},{p['pct']}%)" for p in data["limit_down"])
+        lines.append(f"【今日跌停/领跌个股】{ld_txt}")
     if data.get("lhb_top"):
         lhb_txt = "；".join(f"{x['name']}({x['code']}) 近一月上榜{x['times']}次/净买{x['net_buy']}亿" for x in data["lhb_top"])
         lines.append(f"【龙虎榜资金（近一月统计）】{lhb_txt}")
@@ -170,45 +281,80 @@ def _data_to_facts(data: dict) -> str:
 
 # ---------------- LLM 生成正文 ----------------
 _SYSTEM = (
-    "你是一位资深的A股首席策略师，负责撰写每日盘后复盘报告。"
-    "你将收到今日真实市场数据，请据此撰写专业、客观、可执行的复盘正文。"
-    "必须完整输出全部四大板块，内容务必精炼，切勿因篇幅过长导致中途截断。"
+    "你是一位实战派A股游资策略师，擅长情绪周期、连板梯队与主线轮动分析，深谙赵老哥、"
+    "刺客等顶尖游资的交易哲学。你将收到今日真实市场数据，请撰写一份专业、犀利、可执行的"
+    "盘后复盘报告。必须完整输出全部九大板块，内容务必精炼有干货，切勿因篇幅过长导致中途截断。"
     "仅供研究，不构成投资建议。"
 )
 
 
-def _build_user_prompt(facts: str, custom: str) -> str:
+def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
     focus = (custom or "").strip()
-    focus_block = f"\n\n【分析侧重点（用户偏好）】\n{focus}\n" if focus else ""
+    focus_block = f"\n\n【复盘侧重点（用户偏好）】\n{focus}\n" if focus else ""
+    chart_note = (
+        '注意：第二板块「涨停跌停趋势」的近一月折线图会由系统自动插入到 {{TREND_CHART}} 占位符处，'
+        '你只需在该板块写一段对趋势的文字解读（放在 <div class="warn-box"> 或 <div class="card"> 中），'
+        '并在需要插图的位置原样输出 {{TREND_CHART}} 这一占位符。'
+        if has_chart else
+        '注意：第二板块「涨停跌停趋势」暂无历史图表数据，请用文字描述近期涨停跌停数量变化趋势即可。'
+    )
     return f"""今日真实市场数据如下：
 {facts}
 {focus_block}
-请基于以上真实数据，生成一份盘后复盘报告的【正文 HTML 片段】，严格遵守以下要求：
+请基于以上真实数据，生成一份盘后复盘报告的【正文 HTML 片段】，严格遵守以下要求。
 
-== 结构（必须且仅有这四大板块，板块之间用 <hr class="divider"> 分隔）==
-1. <h2><span class="section-icon">📈</span>一、市场面</h2>
-   - 用 <div class="grid-3"> 放三大指数 metric（label/value/change）
-   - 用 <div class="card"> 内含 <table> 呈现市场情绪（上涨/下跌家数、涨停/跌停数、平均涨幅、多空比）
-   - 用 <div class="summary-box"> + <div class="title">💡 核心判断</div> + <ul> 给出 3-4 条核心判断
-2. <h2><span class="section-icon">🔥</span>二、板块面</h2>
-   - <div class="grid-3"> 标出领涨/领跌代表板块 metric
-   - <div class="card"> + <table> 列「涨幅板块TOP5」（板块/涨幅/催化剂/持续性）
-   - <div class="card"> + <table> 列「跌幅板块TOP5」（板块/跌幅/原因/性质）
-   - <div class="summary-box"> 给出当日最强主线判断（龙头与梯队是否完整、次日强弱预判）
-3. <h2><span class="section-icon">🎯</span>三、个股面</h2>
-   - <div class="card"> + <table> 列今日涨停核心标的（个股/代码/涨幅/板块/涨停逻辑与封板质量）
-   - 如有龙虎榜数据，再用 <div class="card"> + <table> 呈现主流资金动向
-4. <h2><span class="section-icon">📋</span>四、次日计划</h2>
-   - <div class="card"> + <table> 给出交易计划（优先级/标的/策略/触发条件/止损位）
-   - <div class="card"> + <h3>🚫 次日禁忌</h3> + <ul> 列纪律
-   - <div class="summary-box"> + <div class="title">📌 关键观察点</div> + <ul> 列次日重点观察点
+{chart_note}
+
+== 结构（必须且仅有这九大板块，板块之间用 <hr class="divider"> 分隔）==
+
+一、<h2>一、大盘总览</h2>
+   - 用 <div class="stat-row"> 放多个 <div class="stat-box">（label/value/涨跌），含三大指数、成交额、涨停数、跌停数、涨跌比
+   - 用 <div class="card card-gold"> 给出情绪周期定位（如冰点/修复/分歧/退潮）与一句话定调
+
+二、<h2>二、涨停跌停趋势</h2>
+   - 输出 {{TREND_CHART}} 占位符（系统会替换为近一月折线图）
+   - 用 <div class="warn-box"> 或 <div class="card card-blue"> 解读涨停/跌停数量变化（情绪升温还是退潮、是否大面）
+
+三、<h2>三、外盘与宏观</h2>
+   - 用 <div class="stat-row"> + <div class="stat-box"> 列外盘指数（纳指/费半/恒生科技/KOSPI 等）
+   - 用若干 <div class="card card-xxx"> + <span class="tag tag-xxx"> 列 2-4 条关键宏观/消息面事件（地缘/政策/数据/产业）
+
+四、<h2>四、板块题材梳理</h2>
+   - <h3>✅ 强势板块</h3> + <table>（板块/强度/核心逻辑/代表个股），把涨停股按板块归类
+   - <h3>❌ 重挫板块</h3> + <table>（板块/触发因素/跌停代表）
+
+五、<h2>五、涨停股深度分析</h2>
+   - <h3>🔥 连板梯队</h3> + <table>（高度/个股/板块/封板质量/逻辑），梳理龙头与梯队是否完整
+   - 「高度」列用 <span class="tag tag-gold">3板</span> 这种徽章
+   - <h3>涨停驱动分类</h3>：用 <div class="card card-gold/blue/green"> 分「涨价驱动/政策驱动/避险驱动」并点评持续性
+
+六、<h2>六、跌停股分析</h2>
+   - <table>（类型<span class="tag tag-red">/代表/核心原因），分类如高位补跌/利空冲击/板块退潮/概念证伪
+   - 用 <div class="warn-box"> 点评杀跌性质与连板晋级率
+
+七、<h2>七、龙虎榜与资金动向</h2>
+   - 用 <div class="card card-gold"> + <ul> 列主流资金动向（主力净流入板块、机构/游资席位、北向、是否机构缺席需警惕）
+
+八、<h2>八、交易复盘框架</h2>
+   - <h3>✅ 做对的事（可复制）</h3> + <div class="card card-green"><ol>
+   - <h3>❌ 要戒的习惯</h3> + <div class="card card-red"><ol>
+   - <h3>📖 赵老哥/刺客交易哲学提炼</h3> + <div class="highlight-box">：提炼「只做最强主线/买分歧卖一致/不接退潮飞刀」等可学习的买卖逻辑
+   - 注意：这是方法论框架与纪律提炼，不要编造「我的持仓/我的具体买卖记录」
+
+九、<h2>九、次日作战计划</h2>
+   - <h3>🎯 重点板块排序</h3> + <div class="card card-gold"><ol>
+   - <h3>📋 预选标的与买点</h3> + <table class="plan-table">（标的/方向/买点/止损位）
+   - <h3>⛔ 不做清单</h3> + <div class="card card-red"><ul>，用 <li class="nope"> 划掉，结尾强调「不符合计划坚决不做」
+   - <h3>📐 仓位管理</h3> + <div class="card card-blue"><ul>
+   - 最后用 <div class="highlight-box" style="text-align:center;"> 给「一句话总结」
 
 == 样式规则 ==
-- 只能使用这些 CSS 类：card, grid-3, metric, label, value, change, summary-box, title, table/th/td, tag, tag-red, tag-green, tag-yellow, tag-blue, red, green, yellow, blue, section-icon, divider
-- A股习惯「红涨绿跌」：上涨/利好用 class="red"，下跌/利空用 class="green"；箭头用 ▲（涨）/▼（跌）
+- 只能使用骨架已定义的 CSS 类：card, card-gold, card-red, card-green, card-blue, card-purple, tag, tag-red, tag-green, tag-blue, tag-gold, tag-purple, stat-row, stat-box, label, value, table/th/td, red, green, gold, blue, dim, big-num, highlight-box, warn-box, divider, plan-table, nope, strength-bar, s1~s5
+- 强度/封板质量必须写成「徽章」：<span class="strength-bar s5">极强</span>，文字放在 span 内部作为标签。等级映射固定为：s5=极强、s4=强、s3=中等、s2=偏弱、s1=弱。严禁让文字溢出或在 span 外另写文字。
+- A股习惯「红涨绿跌」：上涨/涨停/利好用 class="red"，下跌/跌停/利空用 class="green"
 - 严禁输出 <html>、<head>、<body>、<style> 标签，严禁使用 markdown 代码围栏（```），直接输出 HTML 片段
-- 优先使用上面提供的真实数据；数据缺失的维度（如部分涨停逻辑、催化剂）可基于板块特征做合理定性分析，但不要编造精确数字
-- 不要包含任何「自身交易/我的持仓/个人操作记录」相关内容
+- 优先使用上面提供的真实数据；数据缺失维度（如部分涨停逻辑、催化剂、外盘）可基于板块特征与常识做合理定性分析，但不要编造精确数字
+- 必须输出完整九大板块，宁可每段精炼也要写全，禁止中途截断
 """
 
 
@@ -217,21 +363,29 @@ def _clean_llm_html(text: str) -> str:
     t = (text or "").strip()
     t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
     t = re.sub(r"\s*```$", "", t)
-    # 万一模型输出了完整文档，截取 body 内容
     m = re.search(r"<body[^>]*>(.*)</body>", t, re.S | re.I)
     if m:
         t = m.group(1)
     return t.strip()
 
 
-def _build_body_with_llm(llm, facts: str, custom: str) -> str:
-    content = llm.chat(_SYSTEM, _build_user_prompt(facts, custom), max_tokens=8000)
+def _build_body_with_llm(llm, facts: str, custom: str, chart_svg: str) -> str:
+    content = llm.chat(_SYSTEM, _build_user_prompt(facts, custom, bool(chart_svg)), max_tokens=8000)
     if not content or content.startswith("[LLM"):
         raise RuntimeError(content or "LLM 返回为空")
-    return _clean_llm_html(content)
+    body = _clean_llm_html(content)
+    # 替换趋势图占位符；若模型漏写占位符则在第二板块后补插
+    if chart_svg:
+        if "{{TREND_CHART}}" in body:
+            body = body.replace("{{TREND_CHART}}", chart_svg)
+        else:
+            body = re.sub(r"(<h2>二、[^<]*</h2>)", r"\1" + chart_svg, body, count=1)
+    else:
+        body = body.replace("{{TREND_CHART}}", "")
+    return body
 
 
-# ---------------- 降级：纯数据渲染 ----------------
+# ---------------- 降级：纯数据渲染（九大板块）----------------
 def _cls(pct) -> str:
     try:
         return "red" if float(pct) >= 0 else "green"
@@ -246,130 +400,227 @@ def _arrow(pct) -> str:
         return ""
 
 
-def _build_body_fallback(data: dict) -> str:
+def _build_body_fallback(data: dict, chart_svg: str) -> str:
     parts: list[str] = []
+    b = data.get("breadth") or {}
 
-    # ① 市场面
-    parts.append('<h2><span class="section-icon">📈</span>一、市场面</h2>')
+    # 一、大盘总览
+    parts.append('<h2>一、大盘总览</h2>')
     idx = data.get("indices") or []
     if idx:
         cells = ""
-        for i in idx[:3]:
+        for i in idx[:4]:
             c = _cls(i.get("pct"))
-            cells += (f'<div class="metric"><div class="label">{i["name"]}</div>'
+            cells += (f'<div class="stat-box"><div class="label">{i["name"]}</div>'
                       f'<div class="value {c}">{i.get("price","-")}</div>'
-                      f'<div class="change {c}">{_arrow(i.get("pct"))} {i.get("pct")}%</div></div>')
-        parts.append(f'<div class="grid-3">{cells}</div>')
-    b = data.get("breadth") or {}
+                      f'<div class="{c}">{_arrow(i.get("pct"))} {i.get("pct")}%</div></div>')
+        parts.append(f'<div class="stat-row">{cells}</div>')
     if b:
-        ratio = (round(b.get("down", 0) / b.get("up"), 2) if b.get("up") else "-")
+        ratio = f'{b.get("up","-")}:{b.get("down","-")}'
         parts.append(
-            '<div class="card"><h3>市场情绪</h3><table>'
-            '<tr><th>指标</th><th>数值</th></tr>'
-            f'<tr><td>上涨家数</td><td class="red">{b.get("up")}</td></tr>'
-            f'<tr><td>下跌家数</td><td class="green">{b.get("down")}</td></tr>'
-            f'<tr><td>涨停</td><td class="red">{b.get("limit_up")} 只</td></tr>'
-            f'<tr><td>跌停</td><td class="green">{b.get("limit_down")} 只</td></tr>'
-            f'<tr><td>平均涨幅</td><td>{b.get("avg_pct")}%</td></tr>'
-            f'<tr><td>多空比</td><td>1 : {ratio}</td></tr>'
-            '</table></div>'
+            '<div class="stat-row">'
+            f'<div class="stat-box"><div class="label">涨停</div><div class="value red">{b.get("limit_up","-")}</div></div>'
+            f'<div class="stat-box"><div class="label">跌停</div><div class="value green">{b.get("limit_down","-")}</div></div>'
+            f'<div class="stat-box"><div class="label">涨跌家数</div><div class="value dim">{ratio}</div></div>'
+            f'<div class="stat-box"><div class="label">平均涨幅</div><div class="value {_cls(b.get("avg_pct"))}">{b.get("avg_pct","-")}%</div></div>'
+            '</div>'
         )
-        sentiment = "偏强" if b.get("up", 0) > b.get("down", 0) else "偏弱"
-        parts.append(
-            '<div class="summary-box"><div class="title">💡 核心判断</div><ul>'
-            f'<li>全市场上涨 {b.get("up")} 家 / 下跌 {b.get("down")} 家，赚钱效应{sentiment}</li>'
-            f'<li>涨停 {b.get("limit_up")} 家 / 跌停 {b.get("limit_down")} 家，平均涨幅 {b.get("avg_pct")}%</li>'
-            '</ul></div>'
-        )
+        mood = "偏强、赚钱效应回暖" if b.get("up", 0) > b.get("down", 0) else "偏弱、亏钱效应明显"
+        parts.append(f'<div class="card card-gold"><strong class="gold">📅 情绪定位</strong><br>'
+                     f'全市场上涨 {b.get("up")} 家 / 下跌 {b.get("down")} 家，涨停 {b.get("limit_up")} / 跌停 '
+                     f'{b.get("limit_down")}，当日情绪{mood}。</div>')
 
     parts.append('<hr class="divider">')
 
-    # ② 板块面
-    parts.append('<h2><span class="section-icon">🔥</span>二、板块面</h2>')
+    # 二、涨停跌停趋势
+    parts.append('<h2>二、涨停跌停趋势</h2>')
+    if chart_svg:
+        parts.append(f'<div class="card card-blue">{chart_svg}'
+                     '<p class="dim" style="text-align:center;font-size:12px;">近一个月涨停/跌停数量走势</p></div>')
+        h = data.get("limit_history") or []
+        if len(h) >= 2:
+            d0, d1 = h[-2], h[-1]
+            up_d = d1["limit_up"] - d0["limit_up"]
+            dn_d = d1["limit_down"] - d0["limit_down"]
+            parts.append(f'<div class="warn-box">最新一日涨停 {d1["limit_up"]} 家（环比{up_d:+d}）、'
+                         f'跌停 {d1["limit_down"]} 家（环比{dn_d:+d}）。'
+                         f'{"涨停回落、跌停增多，情绪退潮需防大面。" if up_d < 0 or dn_d > 0 else "涨停回升、情绪修复，可适度参与。"}</div>')
+    else:
+        parts.append('<div class="card">（涨停跌停历史数据暂缺，接口恢复后将自动生成近一月趋势图）</div>')
+
+    parts.append('<hr class="divider">')
+
+    # 三、外盘与宏观
+    parts.append('<h2>三、外盘与宏观</h2>')
+    g = data.get("global") or []
+    if g:
+        cells = "".join(
+            f'<div class="stat-box"><div class="label">{x["name"]}</div>'
+            f'<div class="value {_cls(x.get("pct"))}">{_arrow(x.get("pct"))} {x.get("pct")}%</div></div>'
+            for x in g[:8])
+        parts.append(f'<div class="stat-row">{cells}</div>')
+    else:
+        parts.append('<div class="card">（外盘指数数据暂缺）</div>')
+
+    parts.append('<hr class="divider">')
+
+    # 四、板块题材梳理
+    parts.append('<h2>四、板块题材梳理</h2>')
     sectors = data.get("sectors") or []
     if sectors:
         ups = [s for s in sectors if (s.get("pct") or 0) >= 0][:5]
         downs = sorted(sectors, key=lambda s: s.get("pct") or 0)[:5]
+        bars = [("s5", "极强"), ("s4", "强"), ("s3", "中等"), ("s2", "偏弱"), ("s1", "弱")]
         rows = "".join(
-            f'<tr><td>{s["name"]}</td><td class="red">+{s["pct"]}%</td><td>{s.get("leader","-")}</td></tr>'
-            for s in ups)
-        parts.append(f'<div class="card"><h3>🟢 涨幅板块TOP5</h3><table>'
-                     f'<tr><th>板块</th><th>涨幅</th><th>领涨股</th></tr>{rows}</table></div>')
+            f'<tr><td><strong class="gold">{s["name"]}</strong></td>'
+            f'<td><span class="strength-bar {bars[min(i,4)][0]}">{bars[min(i,4)][1]}</span></td>'
+            f'<td class="red">+{s["pct"]}%</td><td>{s.get("leader","-")}</td></tr>'
+            for i, s in enumerate(ups))
+        if rows:
+            parts.append('<h3>✅ 强势板块</h3><table>'
+                         '<tr><th>板块</th><th>强度</th><th>涨幅</th><th>领涨股</th></tr>'
+                         f'{rows}</table>')
         drows = "".join(
-            f'<tr><td>{s["name"]}</td><td class="green">{s["pct"]}%</td><td>{s.get("leader","-")}</td></tr>'
+            f'<tr><td class="red"><strong>{s["name"]}</strong></td><td>板块退潮/补跌</td>'
+            f'<td class="green">{s["pct"]}%（领跌 {s.get("leader","-")}）</td></tr>'
             for s in downs if (s.get("pct") or 0) < 0)
         if drows:
-            parts.append(f'<div class="card"><h3>🔴 跌幅板块TOP5</h3><table>'
-                         f'<tr><th>板块</th><th>跌幅</th><th>领跌股</th></tr>{drows}</table></div>')
-        if ups:
-            parts.append(f'<div class="summary-box"><div class="title">🔥 主线判断</div>'
-                         f'<ul><li>今日领涨板块为 <strong>{ups[0]["name"]}</strong>（+{ups[0]["pct"]}%），'
-                         f'可重点跟踪其龙头与梯队的次日延续性。</li></ul></div>')
+            parts.append('<h3>❌ 重挫板块</h3><table>'
+                         '<tr><th>板块</th><th>触发因素</th><th>跌幅代表</th></tr>'
+                         f'{drows}</table>')
     else:
         parts.append('<div class="card">（板块数据暂缺）</div>')
 
     parts.append('<hr class="divider">')
 
-    # ③ 个股面
-    parts.append('<h2><span class="section-icon">🎯</span>三、个股面</h2>')
+    # 五、涨停股深度分析
+    parts.append('<h2>五、涨停股深度分析</h2>')
     lu = data.get("limit_up") or []
     if lu:
         rows = "".join(
             f'<tr><td>{p["name"]}</td><td>{p["code"]}</td><td class="red">+{p["pct"]}%</td>'
             f'<td>{("换手 " + str(p["turnover"]) + "%") if p.get("turnover") is not None else "-"}</td></tr>'
             for p in lu)
-        parts.append(f'<div class="card"><h3>今日涨停/领涨核心标的</h3><table>'
-                     f'<tr><th>个股</th><th>代码</th><th>涨幅</th><th>换手</th></tr>{rows}</table></div>')
+        parts.append('<h3>🔥 今日涨停/领涨核心标的</h3><table>'
+                     '<tr><th>个股</th><th>代码</th><th>涨幅</th><th>封板/换手</th></tr>'
+                     f'{rows}</table>')
+        parts.append('<div class="card card-gold"><span class="tag tag-gold">提示</span>'
+                     '配置 LLM 后将自动梳理连板梯队高度、封板质量与涨价/政策/避险驱动分类。</div>')
     else:
         parts.append('<div class="card">（涨停个股数据暂缺）</div>')
+
+    parts.append('<hr class="divider">')
+
+    # 六、跌停股分析
+    parts.append('<h2>六、跌停股分析</h2>')
+    ld = data.get("limit_down") or []
+    if ld:
+        rows = "".join(
+            f'<tr><td><span class="tag tag-red">跌停</span></td><td>{p["name"]}（{p["code"]}）</td>'
+            f'<td class="green">{p["pct"]}%</td></tr>' for p in ld)
+        parts.append('<table><tr><th>类型</th><th>个股</th><th>跌幅</th></tr>' + rows + '</table>')
+        if b:
+            parts.append(f'<div class="warn-box">⚠️ 今日跌停 {b.get("limit_down")} 家。'
+                         '跌停集中通常意味着跟风盘被清洗、情绪退潮，需警惕连板晋级率走低、不接退潮飞刀。</div>')
+    else:
+        parts.append('<div class="card">（无跌停个股或数据暂缺）</div>')
+
+    parts.append('<hr class="divider">')
+
+    # 七、龙虎榜与资金动向
+    parts.append('<h2>七、龙虎榜与资金动向</h2>')
     lhb = data.get("lhb_top") or []
     if lhb:
         rows = "".join(
             f'<tr><td>{x["name"]}</td><td>{x["code"]}</td><td>{x["times"]}</td><td>{x["net_buy"]} 亿</td></tr>'
             for x in lhb)
-        parts.append(f'<div class="card"><h3>龙虎榜主流资金（近一月统计）</h3><table>'
-                     f'<tr><th>个股</th><th>代码</th><th>上榜次数</th><th>净买额</th></tr>{rows}</table></div>')
+        parts.append('<div class="card card-gold"><h3>龙虎榜主流资金（近一月统计）</h3><table>'
+                     '<tr><th>个股</th><th>代码</th><th>上榜次数</th><th>净买额</th></tr>'
+                     f'{rows}</table></div>')
+    else:
+        parts.append('<div class="card">（龙虎榜数据暂缺，通常收盘后晚间披露）</div>')
 
     parts.append('<hr class="divider">')
 
-    # ④ 次日计划
-    parts.append('<h2><span class="section-icon">📋</span>四、次日计划</h2>')
-    parts.append(
-        '<div class="card"><h3>🚫 次日纪律</h3><ul>'
-        '<li>❌ 不追涨停板次日高开，宁可错过不可做错</li>'
-        '<li>❌ 不抄底趋势转弱板块，不接飞刀</li>'
-        '<li>✅ 重点跟踪当日最强主线的龙头与梯队延续性</li>'
-        '<li>✅ 严格执行计划，不符合条件坚决不做</li>'
-        '</ul></div>'
-    )
-    parts.append('<div class="summary-box"><div class="title">📌 关键观察点</div><ul>'
-                 '<li>🔹 当日最强主线明日能否延续（高开分歧 or 一致涨停）</li>'
-                 '<li>🔹 大盘指数关键支撑/压力与量能变化</li>'
-                 '<li>🔹 隔夜外盘走势对相关板块的情绪传导</li>'
+    # 八、交易复盘框架
+    parts.append('<h2>八、交易复盘框架</h2>')
+    parts.append('<h3>✅ 做对的事（可复制）</h3>'
+                 '<div class="card card-green"><ol>'
+                 '<li>只做当日最强主线的前排龙头，弱水三千只取一瓢</li>'
+                 '<li>不追高位连板、不跟风杂毛首板</li>'
+                 '<li>按主线逻辑（涨价/政策双驱动）选股，胜率高于纯情绪博弈</li>'
+                 '</ol></div>')
+    parts.append('<h3>❌ 要戒的习惯</h3>'
+                 '<div class="card card-red"><ol>'
+                 '<li>退潮日满仓追涨、逆势硬扛</li>'
+                 '<li>主线不明时频繁交易、临时起意</li>'
+                 '<li>跌停板上接飞刀、抱侥幸心理</li>'
+                 '</ol></div>')
+    parts.append('<h3>📖 赵老哥/刺客交易哲学提炼</h3>'
+                 '<div class="highlight-box">'
+                 '<p><strong class="gold">赵老哥</strong>：只做市场最强的那一条线；主线不明时空仓等，主线确立后满仓干前排龙头。</p>'
+                 '<p><strong class="gold">刺客</strong>：买入分歧、卖出一致；分歧日低吸前排龙头，一致高潮日减仓兑现，核心是不在退潮时接飞刀。</p>'
+                 '</div>')
+
+    parts.append('<hr class="divider">')
+
+    # 九、次日作战计划
+    parts.append('<h2>九、次日作战计划</h2>')
+    top_sec = ""
+    if sectors:
+        ups = [s for s in sectors if (s.get("pct") or 0) >= 0][:3]
+        top_sec = "".join(f'<li><strong class="gold">{s["name"]}</strong>（关注龙头与梯队延续）</li>' for s in ups)
+    parts.append('<h3>🎯 重点板块排序</h3><div class="card card-gold"><ol>'
+                 + (top_sec or '<li>跟踪当日最强主线的次日延续性</li>') + '</ol></div>')
+    parts.append('<h3>⛔ 不做清单</h3><div class="card card-red"><ul>'
+                 '<li class="nope">❌ 高位连板（晋级率走低风险大）</li>'
+                 '<li class="nope">❌ 跟风杂毛首板</li>'
+                 '<li class="nope">❌ 趋势走坏的退潮板块</li>'
+                 '<li class="nope">❌ 不符合计划临时起意的票 → <strong class="gold">坚决不做</strong></li>'
+                 '</ul></div>')
+    parts.append('<h3>📐 仓位管理</h3><div class="card card-blue"><ul>'
+                 '<li>分歧/退潮期控仓 <strong>3-5 成</strong>，情绪修复期再加</li>'
+                 '<li>单票不超过 <strong>2 成</strong>，分批建仓不一把梭</li>'
+                 '<li><strong class="gold">不急跌不买、不深水不吸</strong></li>'
                  '</ul></div>')
     parts.append('<p style="color:#8b949e;font-size:13px;margin-top:8px;">'
-                 '💡 配置有效的 DEEPSEEK_API_KEY 后，本报告将由 AI 首席策略师生成更深度的逻辑分析与个股级次日计划。</p>')
+                 '💡 配置有效的 LLM API Key 后，本报告将由 AI 游资策略师生成连板梯队、涨停逻辑、'
+                 '个股级预选标的与买点止损的深度分析。</p>')
 
     return "\n".join(parts)
 
 
-# ---------------- 对外编排 ----------------
-def generate_html_review(config: dict | None = None) -> str:
-    """生成完整的 HTML 复盘报告字符串。"""
-    config = config or get_review_config()
-    fetcher = get_fetcher()
-    llm = get_llm()
+# ---------------- 结构化指标提取（供多日对比）----------------
+def _extract_metrics(data: dict) -> dict:
+    """从收集的数据中抽取可对比的结构化指标。"""
+    sectors = data.get("sectors") or []
+    ups = sorted([s for s in sectors if (s.get("pct") or 0) >= 0],
+                 key=lambda s: s.get("pct") or 0, reverse=True)[:5]
+    b = data.get("breadth") or {}
+    return {
+        "indices": data.get("indices") or [],
+        "breadth": b,
+        "global": data.get("global") or [],
+        "top_sectors": [{"name": s.get("name"), "pct": s.get("pct"),
+                         "leader": s.get("leader")} for s in ups],
+        "limit_up_count": b.get("limit_up"),
+        "limit_down_count": b.get("limit_down"),
+        "avg_pct": b.get("avg_pct"),
+    }
 
-    data = _collect_data(fetcher)
+
+def _render(data: dict, config: dict, fetcher, llm) -> str:
+    """组装完整 HTML 文档（不落库）。"""
+    chart_svg = _limit_trend_svg(data.get("limit_history") or [])
     custom = (config.get("mode_options", {}) or {}).get("ai_summary", {}).get("custom_prompt", "")
 
     if llm and llm.available:
         try:
-            body = _build_body_with_llm(llm, _data_to_facts(data), custom)
+            body = _build_body_with_llm(llm, _data_to_facts(data), custom, chart_svg)
         except Exception:
-            body = _build_body_fallback(data)
+            body = _build_body_fallback(data, chart_svg)
     else:
-        body = _build_body_fallback(data)
+        body = _build_body_fallback(data, chart_svg)
 
     now = dt.datetime.now()
     title = config.get("title", "每日盘后复盘")
@@ -380,7 +631,45 @@ def generate_html_review(config: dict | None = None) -> str:
             .replace("{{TITLE}}", title)
             .replace("{{DATE}}", date_cn)
             .replace("{{SUBTITLE}}", subtitle)
+            .replace("{{NOW}}", now.strftime("%Y年%m月%d日 %H:%M"))
+            .replace("{{SOURCE}}", fetcher.active_source)
             .replace("{{BODY}}", body))
+
+
+# ---------------- 对外编排 ----------------
+def generate_html_review(config: dict | None = None) -> str:
+    """生成完整的 HTML 复盘报告字符串（兼容旧调用，不落库）。"""
+    config = config or get_review_config()
+    fetcher = get_fetcher()
+    llm = get_llm()
+    data = _collect_data(fetcher)
+    return _render(data, config, fetcher, llm)
+
+
+def generate_and_store(config: dict | None = None, store: bool = True) -> dict:
+    """生成复盘报告并落库，返回 {html, metrics, record?}。
+
+    供 Web 接口使用：一次采集数据 → 渲染 HTML + 抽取结构化指标 → 持久化（同日覆盖）。
+    """
+    config = config or get_review_config()
+    fetcher = get_fetcher()
+    llm = get_llm()
+    data = _collect_data(fetcher)
+    html = _render(data, config, fetcher, llm)
+    metrics = _extract_metrics(data)
+    title = config.get("title", "每日盘后复盘")
+    date = dt.datetime.now().strftime("%Y-%m-%d")
+
+    out = {"html": html, "metrics": metrics, "date": date, "title": title}
+    if store:
+        try:
+            from review.store import save_review
+            rec = save_review(date, title, html, metrics)
+            out["record"] = {"id": rec["id"], "date": rec["date"],
+                             "created_at": rec["created_at"]}
+        except Exception:
+            pass
+    return out
 
 
 def save_html_review(html: str, out_dir: str = "reports") -> str:

@@ -1,0 +1,7 @@
+OK 耗时:339.6s
+html长度: 16722
+date: 2026-06-16
+record: {'id': '1914d64f3cf6', 'date': '2026-06-16', 'created_at': '2026-06-16 23:18:52'}
+metrics.indices: [{'name': '上证指数', 'price': 4091.8917, 'pct': -0.11}, {'name': '沪深300', 'price': 4884.2322, 'pct': -0.15}, {'name': '科创50', 'price': 1758.4244, 'pct': 0.58}, {'name': '深证成指', 'price': 15675.246, 'pct': 0.93}, {'name': '创业板指', 'price': 4102.942, 'pct': 1.72}]
+metrics.breadth: {'total': 237, 'up': 110, 'down': 121, 'flat': 6, 'limit_up': 9, 'limit_down': 1, 'avg_pct': 0.34, 'median_pct': -0.17}
+落库条数: 1

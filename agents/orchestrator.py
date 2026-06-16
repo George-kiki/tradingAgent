@@ -93,10 +93,62 @@ class AgentOrchestrator:
             "total_strategies": len(ctx.strategy_signals),
         }
 
+    @staticmethod
+    def _fund_score(scorecard: dict) -> float:
+        """把基本面评分卡折算成 0-100 分（good=100/mid=55/bad=15 加权平均）。"""
+        if not scorecard or not scorecard.get("available"):
+            return 50.0
+        pts, n = 0.0, 0
+        for cat in scorecard.get("categories", []):
+            for row in cat.get("rows", []):
+                lv = row.get("level")
+                if lv == "good":
+                    pts += 100; n += 1
+                elif lv == "mid":
+                    pts += 55; n += 1
+                elif lv == "bad":
+                    pts += 15; n += 1
+        return round(pts / n, 1) if n else 50.0
+
+    @staticmethod
+    def _verdict(overall: float) -> dict:
+        """综合评分 -> 结论分档（参考 UZI 阈值 80/65/50/35）。"""
+        if overall >= 80:
+            return {"label": "值得重仓", "tone": "buy", "emoji": "🚀"}
+        if overall >= 65:
+            return {"label": "可以蹲一蹲", "tone": "buy", "emoji": "👀"}
+        if overall >= 50:
+            return {"label": "观望（偏多）", "tone": "hold", "emoji": "⚖️"}
+        if overall >= 35:
+            return {"label": "观望（偏空）", "tone": "hold", "emoji": "🤔"}
+        return {"label": "回避", "tone": "sell", "emoji": "⛔"}
+
     # ---------- 完整分析 ----------
     def analyze(self, symbol: str, verbose: bool = False) -> dict:
         ctx, df = self.build_context(symbol)
         quant = self.quant_consensus(ctx)
+        scorecard = self._build_scorecard(symbol)
+
+        # 投资大佬评审团（规则驱动，无需 LLM）
+        from agents.judges import run_jury
+        try:
+            metrics = self.fetcher.get_valuation_metrics(symbol)
+        except Exception:
+            metrics = {}
+        jury = run_jury(metrics, ctx.snapshot, quant, scorecard, ctx.fund_flow)
+
+        # DCF 估值与三情景
+        from agents.valuation import compute_valuation
+        try:
+            valuation = compute_valuation(metrics, ctx.snapshot, ctx.name)
+        except Exception:
+            valuation = {"available": False, "note": "估值测算失败"}
+
+        # 综合评分 = 基本面 ×0.6 + 评委共识 ×0.4，并给出结论分档
+        fund_score = self._fund_score(scorecard)
+        consensus = jury.get("consensus", 50.0)
+        overall = round(fund_score * 0.6 + consensus * 0.4, 1)
+        verdict = self._verdict(overall)
 
         result = {
             "symbol": symbol,
@@ -104,7 +156,13 @@ class AgentOrchestrator:
             "snapshot": ctx.snapshot,
             "strategy_signals": ctx.strategy_signals,
             "quant_consensus": quant,
-            "scorecard": self._build_scorecard(symbol),
+            "scorecard": scorecard,
+            "jury": jury,
+            "valuation": valuation,
+            "overall_score": overall,
+            "fund_score": fund_score,
+            "consensus_score": consensus,
+            "verdict": verdict,
             "llm_enabled": self.llm.available,
         }
 
