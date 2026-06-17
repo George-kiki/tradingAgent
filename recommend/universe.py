@@ -55,9 +55,9 @@ def _i(key: str, default: int) -> int:
 
 
 # 可调参数
-TOP_SECTORS = _i("REC_UNIVERSE_TOP_SECTORS", 6)        # 取近一周最热的几个板块
-PER_SECTOR = _i("REC_UNIVERSE_PER_SECTOR", 12)         # 每个热门板块取多少成分股
-MAX_UNIVERSE = _i("REC_UNIVERSE_MAX", 120)             # 候选池上限（控制扫描耗时）
+TOP_SECTORS = _i("REC_UNIVERSE_TOP_SECTORS", 4)        # 取近一周最热的几个板块
+PER_SECTOR = _i("REC_UNIVERSE_PER_SECTOR", 8)          # 每个热门板块取多少成分股
+MAX_UNIVERSE = _i("REC_UNIVERSE_MAX", 30)              # 候选池上限（控制扫描耗时）
 
 
 def _eligible(symbol: str) -> bool:
@@ -83,9 +83,12 @@ def build_dynamic_universe(fetcher, base_pool: Optional[list[str]] = None
     sector_map: dict[str, dict] = {}      # symbol -> 所属最热板块信息
     hot_sectors: list[dict] = []
 
-    # 1) 近一周热度榜（识别主线）
+    # 1) 主线板块：默认使用当日行业涨幅榜，速度更稳；如需多日主线可设置 REC_USE_WEEK_SECTORS=true。
+    # 近一周热度榜会逐板块拉历史，遇到东财限流时可能非常慢，不适合作为 Web 实时生成默认路径。
+    use_week = str(os.getenv("REC_USE_WEEK_SECTORS", "false")).lower() in {"1", "true", "yes", "y"}
     try:
-        hot_sectors = fetcher.get_hot_sectors_week(top=TOP_SECTORS * 2) or []
+        hot_sectors = (fetcher.get_hot_sectors_week(top=TOP_SECTORS * 2) if use_week
+                       else fetcher.get_hot_sectors(limit=TOP_SECTORS * 2)) or []
     except Exception:
         hot_sectors = []
 

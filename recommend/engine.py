@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from typing import Optional
 
 import pandas as pd
@@ -500,21 +501,21 @@ class RecommendEngine:
             extra_filters: Optional[dict] = None) -> dict:
         count = count or settings.recommend_count
 
-        # 1. 结算历史推荐 → 更新胜率
+        print("[荐股] 1/7 结算历史推荐...")
         settle_all_pending(self.db, self.fetcher)
 
-        # 2. 定位 base_date
+        print("[荐股] 2/7 定位交易日...")
         base_date = self._resolve_base_date(as_of)
         if not base_date:
             return {"error": "无法获取交易日数据"}
 
-        # 3+4. 反思（含胜率达标判定 + 权重/约束调整）
+        print(f"[荐股] 3/7 反思与权重（base_date={base_date}）...")
         weights, filters, reflection = self._maybe_reflect(base_date)
         # 合并用户临时约束（如 require_fib_50：仅回踩黄金50%）
         if extra_filters:
             filters = {**filters, **{k: v for k, v in extra_filters.items() if v is not None}}
 
-        # 2.5 动态候选池：从近一周最热板块拉成分股，让科技/半导体等主线进入视野
+        print("[荐股] 4/7 构建动态候选池...")
         from recommend.universe import build_dynamic_universe
         try:
             dyn_pool, sector_map, hot_week = build_dynamic_universe(
@@ -524,9 +525,13 @@ class RecommendEngine:
         if not dyn_pool:  # 兜底：动态池失败回退固定池
             dyn_pool = list(pool or RECOMMEND_POOL)
         pool = [s for s in dyn_pool if eligible(s)]
+        scan_max = int(os.getenv("REC_SCAN_MAX", "30"))
+        if len(pool) > scan_max:
+            pool = pool[:scan_max]
         self._sector_map = sector_map  # 供 _score_stock / _multifactor 读取板块归属
 
-        # 市场情绪（全局、最高权重维度）：复用已取的近一周主线板块，供多因子评分与门槛使用
+        print(f"[荐股] 候选池数量：{len(pool)}")
+        print("[荐股] 5/7 计算市场情绪...")
         from recommend.sentiment import compute_market_sentiment
         try:
             sentiment = compute_market_sentiment(self.fetcher, base_date, hot_sectors=hot_week)
@@ -565,7 +570,7 @@ class RecommendEngine:
             market_note = (market_note + " " if market_note else "") + \
                 f"市场主线聚焦【{tops}】，已优先从主线板块内选股、剔除脱离主线标的。"
 
-        # 5. 阶段一：技术面快速初筛全池
+        print("[荐股] 6/7 技术面初筛...")
         scored = []
         for sym in pool:
             try:
@@ -577,7 +582,9 @@ class RecommendEngine:
             except Exception:
                 continue
         scored.sort(key=lambda x: x["score"], reverse=True)
+        print(f"[荐股] 初筛入围：{len(scored)}")
 
+        print("[荐股] 7/7 多因子富化与落库...")
         # 阶段二候选：强制主线时，主线股优先纳入 shortlist（避免被高技术分蓝筹挤占），
         # 再用非主线股补足，保证富化与最终名单聚焦市场主线。
         cap = max(count * 4, 16)
@@ -655,7 +662,7 @@ class RecommendEngine:
                 if item["symbol"] not in chosen:
                     picks.append(item)
 
-        # 7. 落库
+        print(f"[荐股] 最终推荐：{len(picks)}，写入数据库...")
         self.db.save_recommendations(base_date, picks)
 
         from agents.llm import get_llm

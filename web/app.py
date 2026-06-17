@@ -338,7 +338,7 @@ def api_recommend_status():
 
 @app.get("/api/recommend")
 def api_recommend(count: int = Query(5), date: str = Query(""),
-                  require_fib_50: bool = Query(False)):
+                  require_fib_50: bool = Query(False), force: bool = Query(False)):
     """生成（或返回最新）每日荐股 + 反思看板。
 
     require_fib_50=true 时，仅保留回踩斐波那契黄金50%分割位的标的。
@@ -348,7 +348,18 @@ def api_recommend(count: int = Query(5), date: str = Query(""),
         return JSONResponse({"error": status["reason"], **status}, status_code=403)
 
     from recommend.engine import RecommendEngine
+    from recommend.database import RecommendDB
     try:
+        # 当天已经生成过时默认直接返回缓存，避免重复触发全市场重算导致长时间 Loading。
+        # 如确实需要强制重算，可请求 /api/recommend?...&force=1。
+        if not force and not date:
+            db = RecommendDB()
+            latest = db.latest_recommendation_date()
+            if latest == dt.date.today().strftime("%Y-%m-%d") and db.get_recommendations(latest):
+                res = _recommend_view(db, latest)
+                res["cached"] = True
+                return JSONResponse(res)
+
         eng = RecommendEngine()
         extra = {"require_fib_50": True} if require_fib_50 else None
         res = eng.run(as_of=date or None, count=count, extra_filters=extra)
@@ -481,6 +492,31 @@ def api_recommend_history(limit: int = Query(30)):
             "winrate_history": db.winrate_history(limit),
             "reflections": db.recent_reflections(10),
         }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+# ---------------- 尾盘选股 ----------------
+@app.get("/api/tailpick/status")
+def api_tailpick_status():
+    """尾盘选股时间窗口状态。"""
+    from tailpick import tailpick_status
+    return tailpick_status()
+
+
+@app.get("/api/tailpick")
+def api_tailpick(count: int = Query(5), max_pct: float = Query(6.0),
+                 min_amount_yi: float = Query(1.0), min_turnover: float = Query(2.0),
+                 only_mainline: bool = Query(False), force: bool = Query(False)):
+    """执行尾盘选股：14:00-15:00 买入、次日早盘卖出的短线 TopN。"""
+    from tailpick import TailPickEngine
+    try:
+        res = TailPickEngine().run(count=count, max_pct=max_pct, force=force,
+                                   min_amount_yi=min_amount_yi,
+                                   min_turnover=min_turnover,
+                                   only_mainline=only_mainline)
+        code = 400 if res.get("error") else 200
+        return JSONResponse(res, status_code=code)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

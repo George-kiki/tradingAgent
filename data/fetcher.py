@@ -125,7 +125,7 @@ class DataFetcher:
             sina_symbol = ("sh" if symbol.startswith("6") else "sz") + symbol
             df_sina = _retry(lambda: ak.stock_zh_a_daily(
                 symbol=sina_symbol, adjust=adjust or "qfq"
-            ), retries=2)
+            ), retries=1)
             # 新浪换手率为小数比例（如 0.002），统一换算为百分比口径，与东财一致
             if df_sina is not None and not df_sina.empty and "turnover" in df_sina.columns:
                 df_sina = df_sina.copy()
@@ -455,7 +455,7 @@ class DataFetcher:
             return None
 
         sess = requests.Session()
-        retry = Retry(total=4, connect=4, read=4, backoff_factor=1.5,
+        retry = Retry(total=1, connect=1, read=1, backoff_factor=0.3,
                       status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"])
         sess.mount("https://", HTTPAdapter(max_retries=retry))
         sess.headers.update({
@@ -468,8 +468,9 @@ class DataFetcher:
         })
         # 沪深京 A 股过滤串（与东财官方一致）
         fs = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"
-        # f12代码 f14名称 f2最新价 f3涨跌幅 f8换手率 f9市盈率 f10量比 f20总市值 f23市净率
-        fields = "f12,f14,f2,f3,f8,f9,f10,f20,f23"
+        # f12代码 f14名称 f2最新价 f3涨跌幅 f6成交额 f8换手率 f9市盈率 f10量比
+        # f20总市值 f23市净率 f62主力净流入 f184主力净占比
+        fields = "f12,f14,f2,f3,f6,f8,f9,f10,f20,f23,f62,f184"
 
         def _g(d, k):
             v = d.get(k)
@@ -501,7 +502,7 @@ class DataFetcher:
                     try:
                         items, tot = _page(host, pn, pz)
                     except Exception:
-                        time.sleep(2.0)
+                        time.sleep(0.5)
                         try:
                             items, tot = _page(host, pn, pz)  # 该页二次尝试
                         except Exception:
@@ -532,11 +533,14 @@ class DataFetcher:
             "名称": _g(d, "f14"),
             "最新价": _g(d, "f2"),
             "涨跌幅": _g(d, "f3"),
+            "成交额": _g(d, "f6"),
             "换手率": _g(d, "f8"),
             "市盈率-动态": _g(d, "f9"),
             "量比": _g(d, "f10"),
             "总市值": _g(d, "f20"),
             "市净率": _g(d, "f23"),
+            "主力净流入": _g(d, "f62"),
+            "主力净占比": _g(d, "f184"),
         } for d in rows]
         df = pd.DataFrame(recs)
         cov = f"{len(df)}/{total}" if total else str(len(df))
@@ -552,7 +556,7 @@ class DataFetcher:
         3) 新浪备用源（仅基础行情，量比/换手/市值缺失时由 K线补算或降级）
         """
         _require_ak()
-        key = "spot:all"
+        key = "spot:all:v2"
 
         def _fetch():
             # 主源0：Tushare（有 token 时，一次取全市场真实量比/换手/市值，最稳）

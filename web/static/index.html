@@ -300,6 +300,14 @@
   .sc-check{display:flex;align-items:center;gap:8px;font-size:13.5px;flex-wrap:wrap}
   .sc-mini{width:56px;padding:5px 8px}
   .sc-stat{color:var(--sub);font-size:13px;margin:10px 0}
+  /* 尾盘选股 */
+  .tail-status{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .tail-pill{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13px}
+  .tail-pill b{color:var(--gold)}
+  .tail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px}
+  .tail-score{font-size:30px;font-weight:900;color:var(--gold)}
+  .tail-plan{font-size:12.5px;color:#cbd5e1;line-height:1.55;background:rgba(0,0,0,.18);border-radius:10px;padding:10px;margin-top:8px}
+  .tail-chart{height:360px;background:#0e141d;border:1px solid var(--line);border-radius:12px;margin:12px 0 18px}
 </style>
 </head>
 <body>
@@ -317,6 +325,7 @@
     <div class="tab" data-tab="screener">🔎 自定义选股</div>
     <div class="tab" data-tab="value">💎 价值挖掘</div>
     <div class="tab" data-tab="recommend">📌 每日荐股</div>
+    <div class="tab" data-tab="tailpick">🌙 尾盘选股</div>
     <div class="tab" data-tab="review">📋 盘后复盘</div>
     <div class="tab" data-tab="strategies">📚 策略库</div>
   </div>
@@ -451,6 +460,25 @@
     <div id="rc-result"></div>
   </div>
 
+  <!-- 尾盘选股 -->
+  <div class="panel" id="p-tailpick">
+    <div class="tail-status" id="tp-status"></div>
+    <div class="row">
+      <select id="tp-count">
+        <option value="5" selected>推荐 5 只</option>
+        <option value="8">推荐 8 只</option>
+        <option value="10">推荐 10 只</option>
+      </select>
+      <input id="tp-maxpct" type="number" step="0.1" value="6" style="width:110px" title="当日最大涨幅%">
+      <input id="tp-amount" type="number" step="0.1" value="1" style="width:130px" title="最低成交额（亿）">
+      <input id="tp-turnover" type="number" step="0.1" value="2" style="width:130px" title="最低换手率%">
+      <label class="hint" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="tp-mainline"> 只看主线板块</label>
+      <button id="tp-run" onclick="doTailPick()" style="background:var(--gold);color:#000">🌙 生成尾盘 Top5</button>
+      <span class="hint">14:00-15:00 短线策略：今日尾盘买入，明日早盘卖出；硬过滤涨幅≤6%</span>
+    </div>
+    <div id="tp-result"></div>
+  </div>
+
   <!-- 盘后复盘 -->
   <div class="panel" id="p-review">
     <div class="rv-subtabs">
@@ -521,6 +549,12 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const api = (p)=>fetch(p).then(r=>r.json());
+async function apiWithTimeout(p, ms=180000){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), ms);
+  try{ return await fetch(p, {signal: ctrl.signal}).then(r=>r.json()); }
+  finally{ clearTimeout(t); }
+}
 const $ = (id)=>document.getElementById(id);
 const loading = (txt)=>`<div class="loading"><div class="spinner"></div>${txt||'分析中，请稍候...'}</div>`;
 const sigTag = (s)=>`<span class="tag ${s==='BUY'?'buy':s==='SELL'?'sell':'hold'}">${s}</span>`;
@@ -544,7 +578,9 @@ async function loadStrategies(){
 loadStrategies();
 loadHistoryDates();
 refreshRecommendGate();
+refreshTailPickStatus();
 setInterval(refreshRecommendGate, 60 * 1000);
+setInterval(refreshTailPickStatus, 60 * 1000);
 loadScreenerTemplates();
 loadValueDates();
 
@@ -1154,12 +1190,16 @@ async function doRecommend(regen){
       : '读取最新荐股中...');
   const fib50 = $('rc-fib50') && $('rc-fib50').checked ? '&require_fib_50=1' : '';
   const url = regen ? `/api/recommend?count=${cnt}${fib50}` : '/api/recommend/latest';
-  const r = await api(url);
-  if(r.error){ $('rc-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
-  if(r.empty){ $('rc-result').innerHTML=`<div class="card hint">暂无荐股记录，请点击「重新生成」。</div>`; return; }
-  if($('rc-history')) $('rc-history').value='';  // 回到最新时清空历史选择
-  renderRecommend(r);
-  loadHistoryDates();
+  try{
+    const r = regen ? await apiWithTimeout(url, 240000) : await api(url);
+    if(r.error){ $('rc-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
+    if(r.empty){ $('rc-result').innerHTML=`<div class="card hint">暂无荐股记录，请点击「重新生成」。</div>`; return; }
+    if($('rc-history')) $('rc-history').value='';  // 回到最新时清空历史选择
+    renderRecommend(r);
+    loadHistoryDates();
+  }catch(e){
+    $('rc-result').innerHTML=`<div class="card down">请求超时或网络异常：每日荐股涉及全市场/主线板块/资金流/龙虎榜等数据，若超过4分钟请稍后重试，或先点击「读取最新荐股」。</div>`;
+  }
 }
 
 // 加载历史荐股日期列表
@@ -1402,6 +1442,93 @@ function renderRecommend(r, isHistory){
           itemStyle:{color:UP,color0:DOWN,borderColor:UP,borderColor0:DOWN}}]});
     },30);
   });
+}
+
+// ===================== 尾盘选股 =====================
+async function refreshTailPickStatus(){
+  try{
+    const st = await api('/api/tailpick/status');
+    renderTailStatus(st);
+  }catch(e){
+    renderTailStatus({enabled:false, phase:'error', window:'14:00-15:00', recommended_window:'14:30-14:55', reason:'无法获取尾盘状态，请确认服务已启动'});
+  }
+}
+function renderTailStatus(st){
+  const el=$('tp-status'); if(!el) return;
+  const phaseText={before:'未开放',preview:'预览窗口',formal:'最佳窗口',caution:'谨慎窗口',closed:'已关闭',error:'异常'}[st.phase]||st.phase;
+  el.innerHTML = `
+    <div class="tail-pill">状态：<b class="${st.enabled?'up':'down'}">${phaseText}</b></div>
+    <div class="tail-pill">开放窗口：<b>${st.window||'14:00-15:00'}</b></div>
+    <div class="tail-pill">建议生成：<b>${st.recommended_window||'14:30-14:55'}</b></div>
+    <div class="tail-pill" style="flex:1">${st.reason||''}</div>`;
+  const btn=$('tp-run'); if(btn){ btn.disabled=!st.enabled; btn.title=st.reason||''; }
+}
+async function doTailPick(){
+  const btn=$('tp-run');
+  if(btn && btn.disabled){ $('tp-result').innerHTML=`<div class="card hint">${btn.title||'当前不在尾盘选股窗口'}</div>`; return; }
+  const q = new URLSearchParams({
+    count: $('tp-count').value,
+    max_pct: $('tp-maxpct').value || '6',
+    min_amount_yi: $('tp-amount').value || '1',
+    min_turnover: $('tp-turnover').value || '2',
+    only_mainline: $('tp-mainline').checked ? '1' : '0'
+  });
+  $('tp-result').innerHTML = loading('多 Agent 正在筛选尾盘候选：市场情绪 → 资金流 → 技术形态 → 风控，请稍候...');
+  const r = await api('/api/tailpick?'+q.toString());
+  if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailPickStatus(); return; }
+  renderTailPick(r);
+}
+function renderTailPick(r){
+  const m=r.market||{}, b=m.breadth||{}, themes=m.main_themes||[];
+  let html = `<div class="tail-grid">
+    <div class="metric"><div class="v">${m.score??'-'}</div><div class="l">市场情绪分（最高权重40%）</div></div>
+    <div class="metric"><div class="v">${m.temperature||'-'}</div><div class="l">市场温度</div></div>
+    <div class="metric"><div class="v">${b.limit_up??'-'} / ${b.limit_down??'-'}</div><div class="l">涨停 / 跌停</div></div>
+    <div class="metric"><div class="v">${r.candidates_count??0}</div><div class="l">硬过滤后候选池</div></div>
+  </div>
+  <div class="card"><b>主线题材：</b>${themes.slice(0,6).map(s=>`${s.name||s.sector||'-'}${s.week_pct!=null?`(${s.week_pct>=0?'+':''}${s.week_pct}%)`:''}`).join('、') || '暂无'}<br><span class="hint">${m.note||''}</span></div>`;
+  if(r.fund_chart && (r.fund_chart.symbols||[]).length){
+    html += `<div class="sec-title">💰 Top候选资金流入分布图 <span class="hint">单位：亿元</span></div><div id="tp-fund-chart" class="tail-chart"></div>`;
+  }
+  const picks=r.picks||[];
+  if(!picks.length){ $('tp-result').innerHTML = html + `<div class="card hint">暂无符合尾盘买入条件的标的，可降低成交额/换手门槛或稍后再试。</div>`; return; }
+  html += `<div class="sec-title">🌙 尾盘 Top ${picks.length}（${r.strategy}）</div><div class="pick-grid">`;
+  picks.forEach((p,i)=>{
+    const tags=[];
+    if(p.hot_sector&&p.hot_sector.sector) tags.push(`主线·${p.hot_sector.sector}`);
+    if((p.fund||{}).main_net>0) tags.push('主力净流入');
+    if((p.tech||{}).ma_state) tags.push(`均线${p.tech.ma_state}`);
+    html += `<div class="pick-card">
+      <div class="pick-head"><div><span class="pick-rank">#${i+1}</span><span class="pick-name">${p.name}</span><span class="pick-code">${p.symbol}</span></div><div class="tail-score">${p.score}</div></div>
+      <div class="pick-price-row"><span class="pick-price">¥${p.price??'—'}</span><span class="${p.pct_change>=0?'up':'down'}">${p.pct_change>=0?'▲':'▼'} ${p.pct_change}%</span><span class="pick-sector">${p.industry||'—'}</span></div>
+      <div class="pick-tags">${tags.map(t=>`<span class="pick-tag">${t}</span>`).join('')}</div>
+      <div id="tp-spark-${i}" class="pick-spark"></div>
+      <div class="pick-stats">
+        <div><span class="k">市场</span><span class="v">${p.market_score}</span></div>
+        <div><span class="k">资金</span><span class="v">${p.fund_score}</span></div>
+        <div><span class="k">技术</span><span class="v">${p.tech_score}</span></div>
+        <div><span class="k">主力净流入</span><span class="v ${p.fund.main_net>0?'up':'down'}">${p.fund.main_net}亿</span></div>
+        <div><span class="k">净流入占比</span><span class="v">${p.fund.inflow_ratio??'—'}%</span></div>
+        <div><span class="k">风险扣分</span><span class="v down">-${p.risk_penalty}</span></div>
+      </div>
+      <div class="pick-reason"><b>入选逻辑：</b>${p.reason}</div>
+      <div class="tail-plan"><b>买入：</b>${p.buy_plan}<br><b>卖出：</b>${p.sell_plan}<br><b>止损：</b>${p.stop_loss}</div>
+    </div>`;
+  });
+  html += `</div><div class="hint" style="margin-top:10px">⚠️ 尾盘策略为隔日短线模型，仅供研究；14:55 后不建议追高新开仓。</div>`;
+  $('tp-result').innerHTML=html;
+  drawTailFundChart(r.fund_chart);
+  picks.forEach((p,i)=>{
+    const k=p.kline_mini; if(!k||!k.candles) return;
+    setTimeout(()=>{ const chart=echarts.init($('tp-spark-'+i),'dark'); chart.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},grid:{left:6,right:6,top:8,bottom:6},xAxis:{type:'category',data:k.dates,show:false},yAxis:{scale:true,show:false},series:[{type:'candlestick',data:k.candles,itemStyle:{color:UP,color0:DOWN,borderColor:UP,borderColor0:DOWN}}]}); },30);
+  });
+}
+function drawTailFundChart(fc){
+  const el=$('tp-fund-chart'); if(!el||!fc||!(fc.symbols||[]).length) return;
+  setTimeout(()=>{
+    const c=echarts.init(el,'dark');
+    c.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},legend:{top:4,textStyle:{color:'#cbd5e1'}},grid:{left:80,right:30,top:44,bottom:70},xAxis:{type:'category',data:fc.symbols,axisLabel:{color:'#8b98a9',interval:0,rotate:25}},yAxis:{type:'value',name:fc.unit||'亿元',axisLabel:{color:'#8b98a9'}},series:(fc.series||[]).map((s,idx)=>({name:s.name,type:'bar',data:s.data,itemStyle:{color:[UP,'#f0b90b','#a78bfa'][idx]||UP}}))});
+  },30);
 }
 
 // ===================== 盘后复盘 =====================
