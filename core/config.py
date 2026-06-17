@@ -29,6 +29,8 @@ class Settings:
 
     # ---- 数据源 ----
     tushare_token: str = os.getenv("TUSHARE_TOKEN", "")
+    # 自定义 Tushare API 地址（第三方代理服务）；为空时用 SDK 默认官方地址
+    tushare_api_url: str = os.getenv("TUSHARE_API_URL", "")
 
     # ---- 消息推送 ----
     wechat_webhook: str = os.getenv("WECHAT_WEBHOOK", "")

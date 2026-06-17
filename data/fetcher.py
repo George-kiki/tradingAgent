@@ -312,10 +312,55 @@ class DataFetcher:
 
 
     # ---------- 资金流 ----------
+    def get_stock_industry(self, symbol: str) -> str:
+        """个股所属行业（Tushare 同花顺行业）。无 Tushare 时返回空串。"""
+        if self._ts and self._ts.ready:
+            try:
+                return self._ts.get_stock_industry(normalize_symbol(symbol)) or ""
+            except Exception:
+                return ""
+        return ""
+
+    # ---------- 业绩前瞻（官方预告 + 财务趋势）----------
+    def get_forecast(self, symbol: str) -> list[dict]:
+        """官方业绩预告（Tushare）。无 Tushare 时返回空。"""
+        if self._ts and self._ts.ready:
+            try:
+                return self._ts.get_forecast(normalize_symbol(symbol)) or []
+            except Exception:
+                return []
+        return []
+
+    def get_express(self, symbol: str) -> list[dict]:
+        """业绩快报（Tushare）。无 Tushare 时返回空。"""
+        if self._ts and self._ts.ready:
+            try:
+                return self._ts.get_express(normalize_symbol(symbol)) or []
+            except Exception:
+                return []
+        return []
+
+    def get_fina_trend(self, symbol: str, periods: int = 6) -> list[dict]:
+        """历史季报财务趋势（Tushare）。无 Tushare 时返回空。"""
+        if self._ts and self._ts.ready:
+            try:
+                return self._ts.get_fina_trend(normalize_symbol(symbol), periods=periods) or []
+            except Exception:
+                return []
+        return []
+
     def get_fund_flow(self, symbol: str) -> dict:
-        """个股近期资金流向（主力净流入等）。"""
-        _require_ak()
+        """个股近期资金流向（主力净流入等）。优先 Tushare，失败降级东财。"""
         symbol = normalize_symbol(symbol)
+        # 优先 Tushare（规避东财网页接口限流导致的资金流缺失）
+        if self._ts and self._ts.ready:
+            try:
+                ts_out = self._ts.get_fund_flow(symbol)
+                if ts_out:
+                    return ts_out
+            except Exception:
+                pass
+        _require_ak()
         market = "sh" if symbol.startswith("6") else "sz"
         key = f"fund:{symbol}"
 
@@ -617,7 +662,14 @@ class DataFetcher:
 
     # ---------- 板块/热点榜 ----------
     def get_hot_sectors(self, limit: int = 10) -> list[dict]:
-        """行业板块涨幅榜（热点）。"""
+        """行业板块涨幅榜（热点）。优先 Tushare（同花顺），失败降级东财。"""
+        if self._ts and self._ts.ready:
+            try:
+                ts_out = self._ts.get_hot_sectors(limit=limit)
+                if ts_out:
+                    return ts_out
+            except Exception:
+                pass
         _require_ak()
         key = f"sectors:{limit}"
 
@@ -653,8 +705,16 @@ class DataFetcher:
         半导体/元件板块连续走强）。综合：行业板块 + 概念板块（半导体、元件、AI 等概念常在
         概念板块）。返回每个板块的近一周累计涨幅、当日涨幅、领涨股、板块类型。
 
-        强缓存（2小时）+ 容错：东财限流时返回空，由上层回退到静态主线映射。
+        强缓存（2小时）+ 容错：优先 Tushare（同花顺板块），东财限流时新浪兜底。
         """
+        # 优先 Tushare（同花顺行业+概念，规避东财网页接口限流导致的环境差异）
+        if self._ts and self._ts.ready:
+            try:
+                ts_out = self._ts.get_hot_sectors_week(top=top)
+                if ts_out:
+                    return ts_out
+            except Exception:
+                pass
         _require_ak()
         key = f"hot_sectors_week:{top}:{days}"
 
@@ -718,6 +778,44 @@ class DataFetcher:
                 start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"),
                 adjust="")
 
+        def _sina_fallback() -> list[dict]:
+            """东财限流时的备用源：新浪行业板块涨跌幅（不同服务器，规避东财限流）。
+
+            新浪源只有当日板块涨跌幅，无近一周历史，故 week_pct 用 day_pct 兜底，
+            保证前端主线板块至少显示真实涨跌幅而非横杠。
+            """
+            try:
+                df = _retry(lambda: ak.stock_sector_spot(indicator="新浪行业"), retries=1)
+            except Exception:
+                df = None
+            if df is None or df.empty:
+                return []
+            # 新浪行业列：label, 板块, 公司家数, 平均价格, 涨跌额, 涨跌幅, ..., 股票名称
+            name_col = next((c for c in df.columns if c == "板块"), None) \
+                or next((c for c in df.columns if "板块" in c and "名称" not in c), None)
+            # 精确匹配“涨跌幅”，避免误取“涨跌额”
+            pct_col = next((c for c in df.columns if c == "涨跌幅"), None) \
+                or next((c for c in df.columns if "涨跌幅" in c and "个股" not in c), None)
+            lead_col = next((c for c in df.columns if "股票名称" in c), None) \
+                or next((c for c in df.columns if "领涨" in c), None)
+            if not name_col or not pct_col:
+                return []
+            df = df.copy()
+            df[pct_col] = pd.to_numeric(df[pct_col], errors="coerce")
+            df = df.sort_values(pct_col, ascending=False).head(top)
+            out = []
+            for _, row in df.iterrows():
+                dp = round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2)
+                out.append({
+                    "name": str(row[name_col]),
+                    "type": "行业",
+                    "day_pct": dp,
+                    "week_pct": dp,  # 新浪源无近一周历史，用当日涨幅兜底
+                    "leader": str(row[lead_col]) if lead_col else "",
+                    "fund_flow": "",
+                })
+            return out
+
         def _fetch():
             rows = []
             rows += _name_pct_list(lambda: ak.stock_board_industry_name_em(), _ind_hist, "行业")
@@ -725,6 +823,10 @@ class DataFetcher:
                 rows += _name_pct_list(lambda: ak.stock_board_concept_name_em(), _con_hist, "概念")
             except Exception:
                 pass
+            if not rows:
+                # 东财主备均限流，切换新浪行业板块备用源
+                print("[板块] 东财限流，切换新浪行业板块备用源...")
+                rows = _sina_fallback()
             if not rows:
                 return None
             # 按近一周累计涨幅排序，取 top
@@ -746,8 +848,16 @@ class DataFetcher:
         """获取某板块的成分股 [{代码,名称,涨跌幅,总市值}]。
 
         board_type: '行业' 用 stock_board_industry_cons_em；'概念' 用 stock_board_concept_cons_em。
-        强缓存（6小时）+ 容错：限流/无效板块返回空列表。
+        强缓存（6小时）+ 容错：优先 Tushare（同花顺成分股），失败降级东财。
         """
+        # 优先 Tushare（同花顺成分股，规避东财限流）
+        if self._ts and self._ts.ready:
+            try:
+                ts_out = self._ts.get_board_cons(board_name, board_type)
+                if ts_out:
+                    return ts_out
+            except Exception:
+                pass
         _require_ak()
         key = f"board_cons:{board_type}:{board_name}"
 

@@ -264,6 +264,42 @@ def _build_scorecard(r: dict) -> str:
 """
 
 
+def _build_earnings(r: dict) -> str:
+    e = r.get("earnings_forecast") or {}
+    if not e.get("available"):
+        return ""
+    sf = e.get("self_forecast") or {}
+    latest = sf.get("latest") or {}
+    tr = e.get("trend") or {}
+    ch = e.get("chain") or {}
+    cards = ""
+    # 官方预告
+    if latest.get("type"):
+        pc = ""
+        if latest.get("p_change_min") is not None and latest.get("p_change_max") is not None:
+            pc = f"净利同比 {latest['p_change_min']}%~{latest['p_change_max']}%"
+        cards += (f'<div class="agent-card"><div class="agent-role">📋 官方业绩预告 '
+                  f'{latest.get("end_date","")[:6]}</div>'
+                  f'<div style="font-weight:700">{latest.get("type","")} {pc}</div>'
+                  f'<div class="hint2">{(latest.get("change_reason") or "")[:100]}</div></div>')
+    # 产业链景气
+    if ch.get("available"):
+        cards += (f'<div class="agent-card"><div class="agent-role">🔗 产业链/同业景气</div>'
+                  f'<div style="font-weight:700">{ch.get("tone","")}</div>'
+                  f'<div class="hint2">同业 {ch.get("up",0)} 家向好 / {ch.get("down",0)} 家承压（板块：{ch.get("sector","-")}）</div></div>')
+    # 历史趋势
+    if tr.get("direction") and tr.get("direction") != "数据不足":
+        cards += (f'<div class="agent-card"><div class="agent-role">📈 历史季报趋势</div>'
+                  f'<div style="font-weight:700">{tr.get("direction")}</div>'
+                  f'<div class="hint2">{tr.get("note","")}</div></div>')
+    llm = ""
+    if e.get("llm_view") and not str(e["llm_view"]).startswith("["):
+        llm = f'<div class="agent-card"><div class="agent-role">🤖 AI 业绩前瞻推演</div><div>{e["llm_view"]}</div></div>'
+    return (f'<h2>🔮 业绩前瞻（官方预告 + 产业链景气 + 趋势外推）</h2>'
+            f'<div class="hint2">无真实订单数据，为基于公开信息的概率性推演。</div>'
+            f'{cards}{llm}')
+
+
 def _build_strategies(r: dict) -> str:
     sigs = r.get("strategy_signals") or []
     q = r.get("quant_consensus") or {}
@@ -304,7 +340,7 @@ def build_analysis_html(r: dict) -> str:
     """根据 orchestrator.analyze 的结果构建完整自包含 HTML 报告。"""
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     body = (_build_hero(r) + _build_jury(r) + _build_divide(r)
-            + _build_valuation(r) + _build_scorecard(r)
+            + _build_valuation(r) + _build_earnings(r) + _build_scorecard(r)
             + _build_strategies(r) + _build_agents(r))
     return _SKELETON.replace("{{TITLE}}", f"{r.get('name','')}（{r.get('symbol','')}）深度分析") \
                     .replace("{{NOW}}", now).replace("{{BODY}}", body)

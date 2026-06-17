@@ -144,6 +144,17 @@ class AgentOrchestrator:
         except Exception:
             valuation = {"available": False, "note": "估值测算失败"}
 
+        # 业绩前瞻（官方预告 + 产业链景气 + 历史趋势外推 + LLM 推演）
+        from agents.earnings_forecast import analyze_earnings_forecast
+        try:
+            industry = (metrics or {}).get("行业") or (metrics or {}).get("所处行业")
+            if not industry:
+                industry = self.fetcher.get_stock_industry(symbol) or None
+            earnings = analyze_earnings_forecast(
+                self.fetcher, symbol, name=ctx.name, industry=industry, llm=self.llm)
+        except Exception as e:
+            earnings = {"available": False, "summary": f"业绩前瞻分析失败: {e}"}
+
         # 综合评分 = 基本面 ×0.6 + 评委共识 ×0.4，并给出结论分档
         fund_score = self._fund_score(scorecard)
         consensus = jury.get("consensus", 50.0)
@@ -159,6 +170,7 @@ class AgentOrchestrator:
             "scorecard": scorecard,
             "jury": jury,
             "valuation": valuation,
+            "earnings_forecast": earnings,
             "overall_score": overall,
             "fund_score": fund_score,
             "consensus_score": consensus,

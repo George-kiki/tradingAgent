@@ -660,6 +660,47 @@ function renderValuationBlock(v){
   return html;
 }
 
+function renderEarningsBlock(e){
+  if(!e || !e.available){
+    return `<div class="sec-title">🔮 业绩前瞻（产业链推演）</div><div class="card hint">${(e&&e.summary)||'暂无业绩前瞻数据'}</div>`;
+  }
+  const sf = e.self_forecast||{}, tr = e.trend||{}, ch = e.chain||{};
+  const latest = sf.latest||{};
+  const toneCls = t => t==='景气向上'?'up':(t==='景气承压'?'down':'');
+  let html = `<div class="sec-title">🔮 业绩前瞻（官方预告 + 产业链景气 + 趋势外推）<span class="hint" style="font-weight:400">无真实订单数据，为基于公开信息的概率性推演</span></div>`;
+  // 三块卡片
+  html += `<div class="analysis-grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">`;
+  // 官方预告
+  html += `<div class="card" style="margin-bottom:0"><h3>📋 官方业绩预告</h3>`;
+  if(latest && latest.type){
+    const pc = (latest.p_change_min!=null&&latest.p_change_max!=null)?`净利同比 ${latest.p_change_min}%~${latest.p_change_max}%`:'';
+    html += `<div style="font-weight:800;font-size:16px" class="${(latest.p_change_max>0)?'up':'down'}">${latest.type} <span class="hint" style="font-weight:400">${latest.end_date?latest.end_date.slice(0,6):''}</span></div>
+      <div style="margin-top:4px">${pc}</div>
+      ${latest.change_reason?`<div class="hint" style="margin-top:6px;line-height:1.5">${latest.change_reason.slice(0,90)}…</div>`:''}`;
+  } else { html += `<div class="hint">该股暂无官方业绩预告</div>`; }
+  html += `</div>`;
+  // 产业链景气
+  html += `<div class="card" style="margin-bottom:0"><h3>🔗 产业链/同业景气</h3>`;
+  if(ch.available){
+    html += `<div style="font-weight:800;font-size:16px" class="${toneCls(ch.tone)}">${ch.tone}</div>
+      <div style="margin-top:4px">同业 <b class="up">${ch.up||0}</b> 家向好 / <b class="down">${ch.down||0}</b> 家承压</div>
+      <div class="hint" style="margin-top:4px">板块：${ch.sector||'-'}</div>`;
+  } else { html += `<div class="hint">${ch.note||'同业暂无业绩预告'}</div>`; }
+  html += `</div>`;
+  // 历史趋势
+  html += `<div class="card" style="margin-bottom:0"><h3>📈 历史季报趋势</h3>`;
+  if(tr.direction && tr.direction!=='数据不足'){
+    html += `<div style="font-weight:800;font-size:16px">${tr.direction}</div>
+      <div class="hint" style="margin-top:4px;line-height:1.5">${tr.note||''}</div>`;
+  } else { html += `<div class="hint">财务趋势数据不足</div>`; }
+  html += `</div></div>`;
+  // LLM 推演
+  if(e.llm_view && !e.llm_view.startsWith('[')){
+    html += `<div class="card" style="margin-top:10px"><h3>🤖 AI 业绩前瞻推演</h3><p style="line-height:1.7;white-space:pre-wrap">${e.llm_view}</p></div>`;
+  }
+  return html;
+}
+
 function renderAnalyze(r, k){
   const d = r.decision||{}, snap=r.snapshot||{}, q=r.quant_consensus||{};
   const conf = parseInt(d.confidence)||0;
@@ -694,6 +735,7 @@ function renderAnalyze(r, k){
 
   html += renderJuryBlock(r);
   html += renderValuationBlock(r.valuation||{});
+  html += renderEarningsBlock(r.earnings_forecast||{});
 
   // 传统决策摘要（保留原智能分析信息）
   html += `

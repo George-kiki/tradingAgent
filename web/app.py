@@ -373,6 +373,7 @@ def _recommend_view(db, base_date: str) -> dict:
     from core.config import settings
     from data.fetcher import get_fetcher
     from recommend.engine import resolve_name
+    from recommend.sentiment import compute_market_sentiment
 
     picks = db.get_recommendations(base_date)
     results = {r["symbol"]: r for r in db.get_results(base_date)}
@@ -397,18 +398,17 @@ def _recommend_view(db, base_date: str) -> dict:
             pass
 
     # 从 picks 的因子快照还原该批次的全局市场情绪（情绪分对全批次一致）+ 主线板块
-    sentiment = None
+    cached_score = None
+    cached_temp = None
+    cached_weight = None
     sectors_seen: dict = {}
     for p in picks:
         fac = p.get("factors") or {}
         sent = ((fac.get("fundamentals") or {}).get("sentiment")) or {}
-        if sentiment is None and sent.get("market_score") is not None:
-            sentiment = {
-                "score": sent.get("market_score"),
-                "temperature": sent.get("temperature"),
-                "weight": sent.get("weight"),
-                "from_cache": True,
-            }
+        if cached_score is None and sent.get("market_score") is not None:
+            cached_score = sent.get("market_score")
+            cached_temp = sent.get("temperature")
+            cached_weight = sent.get("weight")
         # 还原 pick 的所属主线板块（供卡片标签）
         hs = fac.get("hot_sector")
         if hs:
@@ -417,10 +417,38 @@ def _recommend_view(db, base_date: str) -> dict:
             if hs not in sectors_seen:
                 sectors_seen[hs] = {"name": hs, "week_pct": fac.get("hot_sector_week_pct"),
                                     "rank": fac.get("hot_sector_rank")}
+
+    # 实时重算完整情绪数据（含分项明细 details + 带涨跌幅的主线板块），
+    # 解决历史快照缺少 details / leading_sectors 涨跌幅导致前端“数据加载中…”与横杠占位。
+    sentiment = None
+    try:
+        sentiment = compute_market_sentiment(f, base_date=base_date)
+    except Exception:
+        sentiment = None
+
     if sentiment is not None:
-        lead = sorted(sectors_seen.values(), key=lambda x: (x.get("rank") or 999))
-        if lead:
-            sentiment["leading_sectors"] = lead
+        # 历史批次优先保留当时的情绪分/温度，保证与已落库结果一致
+        if cached_score is not None:
+            sentiment["score"] = cached_score
+            if cached_temp:
+                sentiment["temperature"] = cached_temp
+            if cached_weight:
+                sentiment["weight"] = cached_weight
+            sentiment["from_cache"] = True
+        # 重算未能拿到主线板块涨跌幅时，用快照里的板块兜底
+        if not sentiment.get("leading_sectors") and sectors_seen:
+            sentiment["leading_sectors"] = sorted(
+                sectors_seen.values(), key=lambda x: (x.get("rank") or 999))
+    elif cached_score is not None:
+        # 实时计算彻底失败时退回快照（仅有分数+板块名）
+        sentiment = {
+            "score": cached_score,
+            "temperature": cached_temp,
+            "weight": cached_weight,
+            "from_cache": True,
+            "leading_sectors": sorted(
+                sectors_seen.values(), key=lambda x: (x.get("rank") or 999)),
+        }
 
     return {
         "base_date": base_date,

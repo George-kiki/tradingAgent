@@ -31,6 +31,25 @@ from recommend.winrate import settle_all_pending
 from strategies.library import STRATEGY_REGISTRY
 
 
+def _env_bool(key: str, default: bool) -> bool:
+    v = os.getenv(key)
+    return default if v is None else v.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_float(key: str, default: float) -> float:
+    try:
+        return float(os.getenv(key, str(default)))
+    except Exception:
+        return default
+
+
+# 趋势门槛（防逆势/背离选股）。可经 .env 调节激进/保守程度。
+REQUIRE_UPTREND = _env_bool("REC_REQUIRE_UPTREND", True)   # 启用趋势硬过滤
+MIN_MOM5 = _env_float("REC_MIN_MOM5", -3.0)                # 5日动量低于此值且破20日线 -> 淘汰
+STRICT_NO_FILL = _env_bool("REC_STRICT_NO_FILL", True)     # 宁缺毋滥：补位也须顺势，不足即少推
+REQUIRE_INFLOW = _env_bool("REC_REQUIRE_INFLOW", False)    # 资金流硬筛：主力净流出的票直接剔除
+
+
 # 候选池：沪深主板活跃股（科创/创业板会被 eligible 过滤）+ 静态名称兜底
 # 内置名称表确保即便数据源限流，推荐卡片也始终能显示中文名称
 POOL_NAMES = {
@@ -234,6 +253,10 @@ class RecommendEngine:
         # 判断当前价是否回踩到 50%（及 0.382/0.618）黄金分割位附近——经典回调买点。
         fib = self._fib_retracement(d)
 
+        close_now = float(last["close"])
+        ma20_now = float(last["ma20"])
+        below_ma20 = close_now < ma20_now
+
         bonus = 0.0
         if ma_bull:
             bonus += 0.10
@@ -247,8 +270,19 @@ class RecommendEngine:
             bonus -= 0.12
         if pos52 > 90:
             bonus -= 0.08
-        if mom5 > 18:
-            bonus -= 0.08
+        # 动量奖惩（修复A 修正版）：奖励健康强势上涨，惩罚下跌/过热。
+        # 主线启动票常是"刚突破、未走出多头排列"，靠正动量给分，避免被低估。
+        if 4 <= mom5 <= 18:
+            bonus += 0.10            # 健康强势上涨（顺势主线启动）加分
+        elif mom5 > 18:
+            bonus -= 0.08            # 过热追高减分
+        elif mom5 < -3:
+            bonus -= 0.10            # 明显下跌减分（拒绝逆势）
+        elif mom5 < 0:
+            bonus -= 0.04            # 轻微走弱小幅减分
+        # 跌破20日线（右侧交易，弱势）减分；但放量启动初期可能短暂在20日线下，仅轻罚
+        if below_ma20:
+            bonus -= 0.05
         # 回踩 50% 黄金位且上升趋势中 -> 加分（强回调买点）；命中 0.382/0.618 次级加分
         if fib.get("at_50"):
             bonus += 0.08
@@ -264,6 +298,11 @@ class RecommendEngine:
         # 可选硬约束：仅保留回踩 50% 黄金分割位的标的
         if filters.get("require_fib_50") and not fib.get("at_50"):
             return None
+        # 趋势硬过滤（修复B）：跌破20日线 且 5日动量明显为负 -> 直接淘汰逆势/背离票。
+        # 例外：回踩黄金50%支撑位的强回调买点不淘汰（属顺势中的正常回调）。
+        if filters.get("require_uptrend", REQUIRE_UPTREND):
+            if below_ma20 and mom5 < MIN_MOM5 and not fib.get("at_50"):
+                return None
 
         # K线迷你（前端卡片）
         kt = df.tail(60)
@@ -350,14 +389,17 @@ class RecommendEngine:
                 return "—"
 
         inflow_positive = None
+        main_net_val = None
         try:
             if main_net is not None:
-                inflow_positive = float(main_net) >= 0
+                main_net_val = float(main_net)
+                inflow_positive = main_net_val >= 0
         except Exception:
             inflow_positive = None
         item["main_net_inflow"] = _fmt(main_net) if main_net is not None else "—"
         item["big_order_net"] = _fmt(big_net) if big_net is not None else "—"
         item["factors"]["main_inflow_positive"] = inflow_positive
+        item["factors"]["main_net_value"] = main_net_val  # 主力净额（元），供资金流加分
         return item
 
     def _multifactor(self, item: dict, sentiment: Optional[dict] = None) -> dict:
@@ -385,9 +427,23 @@ class RecommendEngine:
                                 "week_pct": hot.get("week_pct"),
                                 "score": round(sector_bonus, 3)}
 
-        # 综合分 = 技术面分 + 多维加分（含最高权重的市场情绪）+ 主线板块加分
+        # 资金流向加分（第二权重）：主力净流入为正加分、净流出减分。
+        # 加分幅度随净额规模递增（封顶），强化"资金认可"的票、压制"主力出逃"的票。
+        inflow_bonus = 0.0
+        main_val = item["factors"].get("main_net_value")
+        if main_val is not None:
+            yi = main_val / 1e8  # 净额（亿元）
+            if yi > 0:
+                inflow_bonus = round(min(0.06 + yi * 0.02, 0.16), 4)   # 净流入：+0.06 起，按亿递增封顶 +0.16
+            elif yi < 0:
+                inflow_bonus = round(max(-0.05 + yi * 0.02, -0.16), 4)  # 净流出：减分，封顶 -0.16
+        item["factors"]["inflow_bonus"] = inflow_bonus
+        if inflow_bonus > 0:
+            item.setdefault("tags", []).append("主力净流入")
+
+        # 综合分 = 技术面分 + 多维加分（含最高权重的市场情绪）+ 主线板块加分 + 资金流向加分
         item["score"] = round(item.get("tech_score", item["score"])
-                              + mf["multi_bonus"] + sector_bonus, 4)
+                              + mf["multi_bonus"] + sector_bonus + inflow_bonus, 4)
         # 富化标签
         cat = mf.get("catalyst", {})
         if cat.get("highlights"):
@@ -423,6 +479,11 @@ class RecommendEngine:
         sent_note = (mf.get("sentiment") or {}).get("note")
         if sent_note:
             parts.append("市场情绪：" + sent_note)
+        # 资金流向（第二权重）
+        ib = f.get("inflow_bonus") or 0
+        if item.get("main_net_inflow") and item.get("main_net_inflow") != "—":
+            tag = "主力净流入" if ib > 0 else ("主力净流出" if ib < 0 else "主力资金")
+            parts.append(f"资金：{tag} {item['main_net_inflow']}")
         # 主线板块归属（与市场资金主线一致性）
         hot = item.get("hot_sector") or {}
         if hot.get("sector"):
@@ -608,16 +669,42 @@ class RecommendEngine:
         shortlist.sort(key=lambda x: x["score"], reverse=True)
 
         # 6. 约束筛选（资金流入 / 板块上限 / 主线一致性），填满 count
-        require_inflow = bool(filters.get("require_fund_inflow"))
+        # 资金流硬筛：filters 配置 或 .env(REC_REQUIRE_INFLOW) 任一开启即生效
+        require_inflow = bool(filters.get("require_fund_inflow")) or REQUIRE_INFLOW
         require_fund = bool(filters.get("require_positive_fundamental"))
         max_sector = filters.get("max_per_sector")
         picks: list[dict] = []
         sector_count: dict[str, int] = {}
 
+        def _is_uptrend(item) -> bool:
+            """顺势判定（修复C）：拒绝"底部阴跌/弱势震荡"票。
+
+            真正顺势需满足任一：
+            - 多头排列 且 5日动量非负（确认上行，排除底部阴跌的假多头）
+            - 5日动量为正（启动/上涨中）
+            - 回踩黄金50%支撑（顺势中的健康回调买点）
+            """
+            fac = item.get("factors") or {}
+            mom = fac.get("momentum_5d") or 0
+            if fac.get("ma_bull") and mom >= 0:
+                return True
+            if mom > 0:
+                return True
+            # 黄金50%回踩需是"上升趋势中的健康回调（已接近企稳）"，而非持续阴跌恰好
+            # 路过该位：要求回踩段在上升结构(on_uptrend)、近5日基本企稳(mom>=-1)、
+            # 且非空头排列下的弱势。借此剔除"空头阴跌正好压到50%位"的假买点。
+            fib = fac.get("fib") or {}
+            if fib.get("at_50") and fib.get("on_uptrend") and mom >= -1:
+                return True
+            return False
+
         def _passes(item) -> bool:
             if require_inflow and item["factors"].get("main_inflow_positive") is False:
                 return False
             if require_fund and (item["factors"].get("multi_bonus") or 0) < 0:
+                return False
+            # 宁缺毋滥：补位/收录时也要求顺势，杜绝逆势背离票（修复C）
+            if STRICT_NO_FILL and not _is_uptrend(item):
                 return False
             if max_sector:
                 ind = item.get("industry", "—")
@@ -641,7 +728,10 @@ class RecommendEngine:
             if _passes(item):
                 _take(item)
 
-        # 第二遍：主线股不足 count 时，用非主线标的按综合分补齐（保证名单填满）
+        # 第二遍：主线股不足 count 时补齐。
+        #   强制主线(enforce_mainline)时：只补"踩中主线板块"的票，绝不混入非主线标的，
+        #   确保最终名单与市场资金主线 100% 一致（核心要求：不背离市场情绪）。
+        #   非强制主线时：可用非主线顺势标的补齐。
         if len(picks) < count:
             chosen = {p["symbol"] for p in picks}
             for item in shortlist:
@@ -649,19 +739,30 @@ class RecommendEngine:
                     break
                 if item["symbol"] in chosen:
                     continue
+                if enforce_mainline and not (item.get("hot_sector") or {}).get("sector"):
+                    continue  # 强制主线：跳过非主线票
                 if _passes(item):
                     _take(item)
                     chosen.add(item["symbol"])
 
-        # 兜底：若约束过严导致不足，放宽约束按综合分补齐
-        if len(picks) < count:
+        # 兜底：若约束过严导致不足——
+        #   STRICT_NO_FILL=True（默认）：宁缺毋滥，不塞逆势票，宁可少于 count；
+        #   STRICT_NO_FILL=False：放宽其他约束按综合分补齐（但仍排除逆势背离票）。
+        if len(picks) < count and not STRICT_NO_FILL:
             chosen = {p["symbol"] for p in picks}
             for item in shortlist:
                 if len(picks) >= count:
                     break
-                if item["symbol"] not in chosen:
+                if item["symbol"] in chosen:
+                    continue
+                if enforce_mainline and not (item.get("hot_sector") or {}).get("sector"):
+                    continue  # 强制主线：放宽约束也不混入非主线票
+                if _is_uptrend(item):  # 即便放宽约束，仍拒绝逆势票
                     picks.append(item)
+                    chosen.add(item["symbol"])
 
+        if len(picks) < count:
+            print(f"[荐股] 顺势主线优质标的仅 {len(picks)} 只（宁缺毋滥，未凑满 {count}）")
         print(f"[荐股] 最终推荐：{len(picks)}，写入数据库...")
         self.db.save_recommendations(base_date, picks)
 
