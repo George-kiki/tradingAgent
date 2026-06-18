@@ -776,7 +776,7 @@ class RecommendEngine:
             "count": len(picks),
             "picks": picks,
             "data_source": data_source,
-            "data_source_tip": "每日荐股数据源优先级：东方财富直连 → Tushare → AkShare封装东财 → 新浪兜底。" + data_source,
+            "data_source_tip": "K线优先Tushare；行情快照：盘中优先东财实时行情，收盘后优先Tushare日级快照。" + data_source,
             "weights": weights,
             "filters": filters,
             "market_note": market_note,

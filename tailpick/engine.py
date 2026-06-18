@@ -451,7 +451,7 @@ class TailPickEngine:
             "as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
             "strategy": "今日13:00-15:00尾盘买入，明日早盘卖出",
             "data_source": source,
-            "data_source_tip": f"本次尾盘选股行情快照来源：{source}。优先级：东方财富直连实时行情 → Tushare 日级快照 → AkShare 封装东财 → 新浪兜底。",
+            "data_source_tip": f"本次尾盘选股行情快照来源：{source}。盘中优先东财实时行情，收盘后优先Tushare日级快照。",
             "status": st,
             "market": market,
             "weights": {"market": 0.40, "fund": 0.35, "technical": 0.20, "risk_penalty": "0~20"},

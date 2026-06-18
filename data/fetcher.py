@@ -111,7 +111,17 @@ class DataFetcher:
         key = f"kline:v2:{symbol}:{period}:{adjust}:{start}:{end}"
 
         def _fetch():
-            # 主源1：东方财富 K 线
+            # 主源1：Tushare 日线（优先，稳定）
+            if self._ts and self._ts.ready and period == "daily":
+                try:
+                    df_ts = self._ts.get_kline(symbol, days=days, adjust=adjust)
+                    if df_ts is not None and not df_ts.empty:
+                        df_ts.attrs["source"] = "Tushare日线"
+                        return df_ts
+                except Exception:
+                    pass
+
+            # 主源2：东方财富 K 线（Tushare不可用时兜底）
             if ak is not None:
                 try:
                     df_em = _retry(lambda: ak.stock_zh_a_hist(
@@ -122,24 +132,14 @@ class DataFetcher:
                         adjust=adjust,
                     ), retries=1)
                     if df_em is not None and not df_em.empty:
-                        df_em.attrs["source"] = "东方财富K线"
+                        df_em.attrs["source"] = "东方财富K线兜底"
                         return df_em
-                except Exception:
-                    pass
-
-            # 主源2：Tushare 日线（东财不可用时兜底）
-            if self._ts and self._ts.ready and period == "daily":
-                try:
-                    df_ts = self._ts.get_kline(symbol, days=days, adjust=adjust)
-                    if df_ts is not None and not df_ts.empty:
-                        df_ts.attrs["source"] = "Tushare日线兜底"
-                        return df_ts
                 except Exception:
                     pass
 
             # 备用源：新浪（不同服务器，规避东财限流）
             if ak is not None:
-                print("[K线] 东财/Tushare 获取失败，切换新浪备用源...")
+                print("[K线] Tushare/东财 获取失败，切换新浪备用源...")
                 try:
                     sina_symbol = ("sh" if symbol.startswith("6") else "sz") + symbol
                     df_sina = _retry(lambda: ak.stock_zh_a_daily(
@@ -626,43 +626,73 @@ class DataFetcher:
     def get_market_spot(self) -> pd.DataFrame:
         """A股全市场实时快照（涨跌幅、市值、换手、量比等）。
 
-        数据源优先级（尾盘/盘中实时场景）：
-        1) 直连东方财富行情接口（优先，实时性最好）
-        2) Tushare 日级快照（东财直连不可用时兜底，可能非实时）
-        3) AkShare 封装东财
-        4) 新浪备用源（仅基础行情）
+        数据源优先级（根据时段智能选择）：
+        - 盘中（9:30-15:00）：东财直连实时行情（实时性最好）
+        - 收盘后：Tushare 日级快照（稳定、完整）
+        - 兜底：AkShare封装东财 → 新浪
         """
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        _is_trading_hours = _now.weekday() < 5 and _dt.time(9, 30) <= _now.time() <= _dt.time(15, 5)
+
         _require_ak()
         key = "spot:all:v3"
 
         def _fetch():
-            # 主源1：直连东财（字段最全、实时性最好）
-            df = self._spot_em_direct()
-            if df is not None and not df.empty:
-                return df
+            # 盘中优先东财实时行情，收盘后优先 Tushare 日级快照
+            if _is_trading_hours:
+                # 盘中：东财实时行情
+                df = self._spot_em_direct()
+                if df is not None and not df.empty:
+                    return df
 
-            # 主源2：Tushare（日级快照，稳定但实时性弱于东财直连）
-            if self._ts and self._ts.ready:
+                # 东财不可用时，尝试 AkShare 东财
                 try:
-                    df = self._ts.get_market_spot_all()
+                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
                     if df is not None and not df.empty:
-                        df.attrs["source"] = "Tushare日级快照兜底"
-                        print(f"[快照] 东财直连不可用，切换 Tushare 全市场快照，{len(df)} 只")
+                        df.attrs["source"] = "东方财富(AkShare封装)实时快照"
                         return df
                 except Exception:
                     pass
 
-            # 主源3：AkShare 封装东财
-            try:
-                df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
-                if df is not None and not df.empty:
-                    df.attrs["source"] = "东方财富(AkShare封装)实时快照"
-                    return df
-            except Exception:
-                pass
+                # 兜底：Tushare（虽然盘中数据可能不完整）
+                if self._ts and self._ts.ready:
+                    try:
+                        df = self._ts.get_market_spot_all()
+                        if df is not None and not df.empty:
+                            df.attrs["source"] = "Tushare日级快照兜底"
+                            print(f"[快照] 盘中东财不可用，切换 Tushare 全市场快照，{len(df)} 只")
+                            return df
+                    except Exception:
+                        pass
+            else:
+                # 收盘后：Tushare 日级快照（稳定、完整）
+                if self._ts and self._ts.ready:
+                    try:
+                        df = self._ts.get_market_spot_all()
+                        if df is not None and not df.empty:
+                            df.attrs["source"] = "Tushare日级快照"
+                            print(f"[快照] Tushare 全市场快照成功，{len(df)} 只")
+                            return df
+                    except Exception:
+                        pass
 
-            # 备用源：新浪（无量比/换手/市值）
-            print("[快照] 东财直连/Tushare/AkShare东财 均不可用，切换新浪备用源（量比/换手/市值将降级）...")
+                # Tushare 不可用时，尝试东财
+                df = self._spot_em_direct()
+                if df is not None and not df.empty:
+                    return df
+
+                # 兜底：AkShare 封装东财
+                try:
+                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
+                    if df is not None and not df.empty:
+                        df.attrs["source"] = "东方财富(AkShare封装)实时快照兜底"
+                        return df
+                except Exception:
+                    pass
+
+            # 最终兜底：新浪（无量比/换手/市值）
+            print("[快照] 东财/Tushare 均不可用，切换新浪备用源（量比/换手/市值将降级）...")
             try:
                 s = _retry(lambda: ak.stock_zh_a_spot(), retries=2)
                 if s is not None and not s.empty:
