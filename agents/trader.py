@@ -34,29 +34,50 @@ class TraderAgent(Agent):
             f"多空辩论：\n{debate_summary}\n"
             f"风控建议：\n{risk_view}\n\n"
             "请综合以上信息，按系统要求的 JSON 格式输出最终决策。"
+            "只输出一段完整 JSON，不要 Markdown，不要解释文字，字段不要换行截断。"
         )
-        raw = self._ask(prompt, temperature=0.2, max_tokens=800)
+        raw = self._ask(prompt, temperature=0.2, max_tokens=1200)
         return self._parse_json(raw)
 
     @staticmethod
     def _parse_json(raw: str) -> dict:
-        """从 LLM 输出中稳健提取 JSON。"""
+        """从 LLM 输出中稳健提取 JSON；不把原始 JSON 残片展示到前端。"""
         default = {
             "action": "观望", "confidence": 50, "target_price": "-",
             "stop_loss": "-", "position": "-", "horizon": "短线",
-            "summary": raw[:80] if raw else "解析失败", "reasons": [],
+            "summary": "交易决策模型输出解析失败，已回退为观望；请结合上方分析师报告与风控意见复核。",
+            "reasons": [],
             "raw": raw,
         }
         if not raw or raw.startswith("[LLM"):
             default["summary"] = raw or "LLM 未返回"
             return default
-        # 去掉 ```json ``` 包裹
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not m:
-            return default
-        try:
-            data = json.loads(m.group(0))
-            default.update({k: v for k, v in data.items() if v is not None})
-            return default
-        except Exception:
-            return default
+
+        # 去掉 ```json ``` 包裹，并提取最外层 JSON
+        cleaned = re.sub(r"```(?:json)?|```", "", raw, flags=re.IGNORECASE).strip()
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group(0))
+                default.update({k: v for k, v in data.items() if v is not None})
+                if isinstance(default.get("summary"), str) and default["summary"].lstrip().startswith("{"):
+                    default["summary"] = "模型返回了异常 JSON 文本，已提取可用字段并回退缺失项。"
+                return default
+            except Exception:
+                pass
+
+        # JSON 被截断时，尽量按字段提取，避免前端显示半截 JSON
+        fields = ["action", "target_price", "stop_loss", "position", "horizon", "summary"]
+        for k in fields:
+            mm = re.search(rf'"{k}"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', cleaned, re.DOTALL)
+            if mm:
+                default[k] = mm.group(1).replace('\\"', '"').strip()
+        mm = re.search(r'"confidence"\s*:\s*(\d+)', cleaned)
+        if mm:
+            default["confidence"] = max(0, min(100, int(mm.group(1))))
+        reasons = re.findall(r'"reasons"\s*:\s*\[(.*?)\]', cleaned, re.DOTALL)
+        if reasons:
+            default["reasons"] = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', reasons[0])[:5]
+        if not default.get("summary") or str(default["summary"]).lstrip().startswith(("{", '"action"')):
+            default["summary"] = "模型输出不完整，已提取可用字段；缺失字段按保守观望处理。"
+        return default

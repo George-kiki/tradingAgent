@@ -47,3 +47,33 @@ def cached_call(key: str, func: Callable[[], Any], ttl: Optional[int] = None) ->
     if val is not None:
         set_cached(key, val)
     return val
+
+
+def invalidate_cache(key: str) -> bool:
+    """删除指定 key 的缓存文件，强制下次调用重新拉取。返回是否成功删除。"""
+    path = _key_to_path(key)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def invalidate_pattern(prefix: str = "") -> int:
+    """批量删除匹配前缀的缓存（prefix 为空则清全部）。返回删除数量。"""
+    d = settings.cache_dir
+    if not os.path.isdir(d):
+        return 0
+    count = 0
+    for f in os.listdir(d):
+        if prefix and not f.startswith(prefix):
+            continue
+        fp = os.path.join(d, f)
+        try:
+            os.remove(fp)
+            count += 1
+        except Exception:
+            pass
+    return count

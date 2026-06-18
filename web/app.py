@@ -54,6 +54,23 @@ def api_analyze_report(symbol: str = Query(..., description="股票代码")):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+@app.post("/api/analyze/report")
+def api_analyze_report_post(payload: dict = Body(...)):
+    """生成个股深度分析报告（POST 版）。"""
+    from report.analysis_report import generate_and_store
+    try:
+        symbol = str(payload.get("symbol") or "").strip()
+        if not symbol:
+            return JSONResponse({"error": "缺少股票代码"}, status_code=400)
+        out = generate_and_store(symbol)
+        res = out["result"]
+        res["report_html"] = out["html"]
+        res["report_record"] = out["record"]
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 @app.get("/api/analyze/history")
 def api_analyze_history():
     """历史深度分析报告列表。"""
@@ -453,6 +470,8 @@ def _recommend_view(db, base_date: str) -> dict:
     return {
         "base_date": base_date,
         "picks": picks,
+        "data_source": "历史/缓存结果",
+        "data_source_tip": "当前为已落库荐股记录；原始生成时的数据源未单独存储。新生成时优先级：东方财富直连 → Tushare → AkShare封装东财 → 新浪兜底。",
         "sentiment": sentiment,
         "prev_winrate": db.latest_winrate(before=base_date),
         "winrate": db.get_winrate(base_date),
@@ -535,11 +554,14 @@ def api_tailpick_status():
 @app.get("/api/tailpick")
 def api_tailpick(count: int = Query(5), max_pct: float = Query(6.0),
                  min_amount_yi: float = Query(1.0), min_turnover: float = Query(2.0),
-                 only_mainline: bool = Query(False), force: bool = Query(False)):
-    """执行尾盘选股：14:00-15:00 买入、次日早盘卖出的短线 TopN。"""
+                 only_mainline: bool = Query(False)):
+    """执行尾盘选股：13:00-15:00 买入、次日早盘卖出的短线 TopN。
+
+    每次调用均实时重算（市场情绪/资金流/技术形态随行情变化），不做结果级缓存。
+    """
     from tailpick import TailPickEngine
     try:
-        res = TailPickEngine().run(count=count, max_pct=max_pct, force=force,
+        res = TailPickEngine().run(count=count, max_pct=max_pct, force=True,
                                    min_amount_yi=min_amount_yi,
                                    min_turnover=min_turnover,
                                    only_mainline=only_mainline)

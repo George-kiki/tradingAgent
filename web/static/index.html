@@ -100,7 +100,19 @@
   .spinner{width:38px;height:38px;border:3px solid var(--line);
     border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 14px}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .report-text{white-space:pre-wrap;font-size:13.5px;color:#cbd5e1;line-height:1.75}
+  .report-text{white-space:pre-wrap;font-size:13.5px;color:#cbd5e1;line-height:1.75;overflow-wrap:anywhere;word-break:break-word}
+  .prose-text{font-size:13.5px;color:#d7e3f3;line-height:1.85;overflow-wrap:anywhere;word-break:break-word}
+  .prose-text p{margin:7px 0}
+  .prose-text h4{font-size:14px;color:#79c0ff;margin:14px 0 8px;padding-left:10px;border-left:3px solid var(--accent);background:rgba(59,130,246,.06);border-radius:6px;padding-top:5px;padding-bottom:5px}
+  .prose-text strong{color:#f0d37a;font-weight:800}
+  .analysis-list{display:flex;flex-direction:column;gap:7px;margin:8px 0}
+  .analysis-item{background:rgba(255,255,255,.035);border:1px solid rgba(42,54,71,.65);border-radius:10px;padding:9px 11px}
+  .analysis-item .idx{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:7px;background:rgba(59,130,246,.18);color:#79c0ff;font-size:11px;font-weight:900;margin-right:7px}
+  .analysis-bullet{position:relative;margin:6px 0 6px 16px;padding-left:12px;color:#d4deec}
+  .analysis-bullet::before{content:"";position:absolute;left:-4px;top:.78em;width:5px;height:5px;border-radius:50%;background:var(--accent2)}
+  .analysis-muted{color:var(--sub);font-size:12.5px;margin-top:6px}
+  .role-card{background:rgba(11,14,20,.22);border:1px solid rgba(42,54,71,.75);border-left:3px solid var(--accent);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .role-card .role-name{font-weight:800;color:var(--accent2);margin-bottom:8px;letter-spacing:.2px}
   .disclaimer{color:var(--sub);font-size:12px;text-align:center;padding:20px}
   /* 智能分析增强 */
   .chart-box{background:#0e141d;border:1px solid var(--line);border-radius:12px;padding:8px}
@@ -113,8 +125,6 @@
   .action-hold{background:rgba(240,185,11,.16);color:var(--gold)}
   .conf-bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:6px}
   .conf-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:6px}
-  .role-card{border-left:3px solid var(--accent);padding-left:14px;margin-bottom:14px}
-  .role-card .role-name{font-weight:600;color:var(--accent2);margin-bottom:4px}
   .debate-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
   @media(max-width:860px){.debate-row{grid-template-columns:1fr}}
   .bull-box{background:rgba(246,70,93,.07);border:1px solid rgba(246,70,93,.25);border-radius:10px;padding:12px}
@@ -335,7 +345,7 @@
     <div class="row">
       <input id="a-symbol" placeholder="股票代码，如 600519" value="600519">
       <button onclick="doAnalyze()">开始分析</button>
-      <span class="hint">K线图 + 多智能体（技术/基本面/舆情分析师 + 多空辩论 + 风控 + 决策）一体化呈现</span>
+      <span class="hint">K线图 + 多智能体（技术/基本面/舆情/产业链线索自动检索 + 多空辩论 + 风控 + 决策）一体化呈现</span>
     </div>
     <div id="a-result"></div>
   </div>
@@ -464,17 +474,21 @@
   <div class="panel" id="p-tailpick">
     <div class="tail-status" id="tp-status"></div>
     <div class="row">
+      <span class="hint" style="white-space:nowrap">📊 推荐数量</span>
       <select id="tp-count">
         <option value="5" selected>推荐 5 只</option>
         <option value="8">推荐 8 只</option>
         <option value="10">推荐 10 只</option>
       </select>
-      <input id="tp-maxpct" type="number" step="0.1" value="6" style="width:110px" title="当日最大涨幅%">
-      <input id="tp-amount" type="number" step="0.1" value="1" style="width:130px" title="最低成交额（亿）">
-      <input id="tp-turnover" type="number" step="0.1" value="2" style="width:130px" title="最低换手率%">
+      <span class="hint" style="white-space:nowrap;margin-left:6px">📈 最大涨幅%</span>
+      <input id="tp-maxpct" type="number" step="0.1" value="6" style="width:90px" title="当日最大涨幅%">
+      <span class="hint" style="white-space:nowrap;margin-left:6px">💰 最低成交额（亿）</span>
+      <input id="tp-amount" type="number" step="0.1" value="1" style="width:100px" title="最低成交额（亿）">
+      <span class="hint" style="white-space:nowrap;margin-left:6px">🔄 最低换手率%</span>
+      <input id="tp-turnover" type="number" step="0.1" value="2" style="width:100px" title="最低换手率%">
       <label class="hint" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="tp-mainline"> 只看主线板块</label>
       <button id="tp-run" onclick="doTailPick()" style="background:var(--gold);color:#000">🌙 生成尾盘 Top5</button>
-      <span class="hint">14:00-15:00 短线策略：今日尾盘买入，明日早盘卖出；硬过滤涨幅≤6%</span>
+      <span class="hint">13:00-15:00 短线策略：今日尾盘买入，明日早盘卖出；硬过滤涨幅≤6%</span>
     </div>
     <div id="tp-result"></div>
   </div>
@@ -588,11 +602,11 @@ loadValueDates();
 async function doAnalyze(){
   const sym = $('a-symbol').value.trim();
   if(!sym) return;
-  $('a-result').innerHTML = loading('多智能体分析中（DeepSeek V4 Pro），可能需要 30-90 秒...');
+  $('a-result').innerHTML = loading('多智能体分析中（自动检索产业链/渠道线索 + DeepSeek V4 Pro），可能需要 30-120 秒...');
   try{
-    // 并行拉取分析结果与K线数据
+    // 并行拉取分析结果与K线数据；Agent 会自动检索公开产业链/渠道线索
     const [r, k] = await Promise.all([
-      api('/api/analyze/report?symbol='+sym),
+      fetch('/api/analyze/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})}).then(x=>x.json()),
       api('/api/kline?symbol='+sym+'&days=120').catch(()=>null)
     ]);
     if(r.error){ $('a-result').innerHTML = `<div class="card down">错误：${r.error}</div>`; return; }
@@ -677,7 +691,9 @@ function renderEarningsBlock(e){
     html += `<div style="font-weight:800;font-size:16px" class="${(latest.p_change_max>0)?'up':'down'}">${latest.type} <span class="hint" style="font-weight:400">${latest.end_date?latest.end_date.slice(0,6):''}</span></div>
       <div style="margin-top:4px">${pc}</div>
       ${latest.change_reason?`<div class="hint" style="margin-top:6px;line-height:1.5">${latest.change_reason.slice(0,90)}…</div>`:''}`;
-  } else { html += `<div class="hint">该股暂无官方业绩预告</div>`; }
+  } else {
+    html += `<div class="hint">该股暂无近期官方业绩预告${sf.stale_note?`<br>${sf.stale_note}`:''}</div>`;
+  }
   html += `</div>`;
   // 产业链景气
   html += `<div class="card" style="margin-bottom:0"><h3>🔗 产业链/同业景气</h3>`;
@@ -696,7 +712,59 @@ function renderEarningsBlock(e){
   html += `</div></div>`;
   // LLM 推演
   if(e.llm_view && !e.llm_view.startsWith('[')){
-    html += `<div class="card" style="margin-top:10px"><h3>🤖 AI 业绩前瞻推演</h3><p style="line-height:1.7;white-space:pre-wrap">${e.llm_view}</p></div>`;
+    html += `<div class="card" style="margin-top:10px"><h3>🤖 AI 业绩前瞻推演</h3>${formatAnalysisText(e.llm_view)}</div>`;
+  }
+  return html;
+}
+
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function inlineFmt(s){
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+}
+function formatAnalysisText(text){
+  const lines = String(text||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
+  if(!lines.length) return '<div class="analysis-muted">暂无内容</div>';
+  let html='', listOpen=false;
+  const closeList=()=>{ if(listOpen){ html+='</div>'; listOpen=false; } };
+  lines.forEach(raw=>{
+    let line = raw.replace(/^[-•·]\s*/, '- ');
+    const h = line.match(/^#{1,4}\s*(.+)$/);
+    if(h){ closeList(); html += `<h4>${inlineFmt(h[1])}</h4>`; return; }
+    const boldNumbered = line.match(/^\*\*(\d+)[).、]\s*(.+?)\*\*\s*$/);
+    if(boldNumbered){ closeList(); html += `<h4><span class="idx">${boldNumbered[1]}</span>${inlineFmt(boldNumbered[2])}</h4>`; return; }
+    const boldHeading = line.match(/^\*\*(.+?)\*\*\s*$/);
+    if(boldHeading){ closeList(); html += `<h4>${inlineFmt(boldHeading[1])}</h4>`; return; }
+    const numbered = line.match(/^(\d+)[).、]\s*(.+)$/);
+    if(numbered){ closeList(); html += `<div class="analysis-item"><span class="idx">${numbered[1]}</span>${inlineFmt(numbered[2])}</div>`; return; }
+    const bullet = line.match(/^[-]\s*(.+)$/);
+    if(bullet){ if(!listOpen){ html+='<div class="analysis-list">'; listOpen=true; } html += `<div class="analysis-bullet">${inlineFmt(bullet[1])}</div>`; return; }
+    const kv = line.match(/^\*\*(.+?)\*\*[:：]\s*(.*)$/);
+    if(kv){ closeList(); html += `<div class="analysis-item"><strong>${inlineFmt(kv[1])}</strong>${kv[2]?`：${inlineFmt(kv[2])}`:''}</div>`; return; }
+    closeList(); html += `<p>${inlineFmt(line)}</p>`;
+  });
+  closeList();
+  return `<div class="prose-text">${html}</div>`;
+}
+
+function renderChannelResearch(cr){
+  if(!cr || !cr.available) return '';
+  const tags = (cr.tags||[]).map(t=>`<span class="pick-tag">#${t}</span>`).join('');
+  const points = (cr.points||[]).slice(0,6).map(p=>`<li style="margin:5px 0">${p}</li>`).join('');
+  let html = `<div class="sec-title">🔗 产业链/渠道线索 <span class="hint" style="font-weight:400">Agent自动公开检索，默认待核验</span></div>
+    <div class="card" style="border-color:rgba(59,130,246,.35)">
+      <h3>🏷️ 关键词</h3><div class="pick-tags">${tags || '<span class="hint">未识别关键词</span>'}</div>
+      <h3 style="margin-top:10px">📌 自动检索摘要</h3><ul style="padding-left:18px">${points}</ul>
+      <div class="analysis-muted">${escapeHtml(cr.risk_note||'该模块由Agent自动检索公开信息，需独立核验。')}</div>
+    </div>`;
+  if(cr.llm_view && !cr.llm_view.startsWith('[')){
+    html += `<div class="card"><h3>🤖 线索交叉验证</h3>${formatAnalysisText(cr.llm_view)}</div>`;
+  }
+  if(cr.raw){
+    html += `<details class="card"><summary>查看自动检索原始材料</summary><div class="hint" style="white-space:pre-wrap;margin-top:8px;overflow-wrap:anywhere">${escapeHtml(cr.raw.slice(0,2000))}</div></details>`;
   }
   return html;
 }
@@ -736,6 +804,7 @@ function renderAnalyze(r, k){
   html += renderJuryBlock(r);
   html += renderValuationBlock(r.valuation||{});
   html += renderEarningsBlock(r.earnings_forecast||{});
+  html += renderChannelResearch(r.channel_research||{});
 
   // 传统决策摘要（保留原智能分析信息）
   html += `
@@ -748,8 +817,8 @@ function renderAnalyze(r, k){
       <div class="metric"><div class="v">${d.stop_loss||'-'}</div><div class="l">止损位</div></div>
       <div class="metric"><div class="v">${q.avg_score??'-'}</div><div class="l">量化评分</div></div>
     </div>
-    <p style="margin-top:6px">💡 ${d.summary||''}</p>
-    ${(d.reasons&&d.reasons.length)?'<ul style="margin-top:8px;padding-left:20px">'+d.reasons.map(x=>`<li style="margin:4px 0">${x}</li>`).join('')+'</ul>':''}
+    <div style="margin-top:8px">${formatAnalysisText('💡 '+(d.summary||''))}</div>
+    ${(d.reasons&&d.reasons.length)?'<div class="analysis-list">'+d.reasons.map((x,i)=>`<div class="analysis-item"><span class="idx">${i+1}</span>${inlineFmt(x)}</div>`).join('')+'</div>':''}
   </div>`;
 
   // K线图 + 行情快照 并排
@@ -801,7 +870,7 @@ function renderAnalyze(r, k){
   if(r.analyst_reports){
     html += `<div class="sec-title">👨‍💼 分析师团队报告</div><div class="card">`;
     for(const [role,text] of Object.entries(r.analyst_reports)){
-      html += `<div class="role-card"><div class="role-name">${role}</div><div class="report-text">${text}</div></div>`;
+      html += `<div class="role-card"><div class="role-name">${escapeHtml(role)}</div>${formatAnalysisText(text)}</div>`;
     }
     html += `</div>`;
   }
@@ -811,15 +880,15 @@ function renderAnalyze(r, k){
     r.debate.transcript.forEach(t=>{
       html += `<div style="font-weight:600;margin:6px 0;color:var(--sub)">第 ${t.round} 轮</div>
         <div class="debate-row">
-          <div class="bull-box"><b>🐂 多头</b><div class="report-text" style="margin-top:4px">${t.bull}</div></div>
-          <div class="bear-box"><b>🐻 空头</b><div class="report-text" style="margin-top:4px">${t.bear}</div></div>
+          <div class="bull-box"><b>🐂 多头</b><div style="margin-top:8px">${formatAnalysisText(t.bull)}</div></div>
+          <div class="bear-box"><b>🐻 空头</b><div style="margin-top:8px">${formatAnalysisText(t.bear)}</div></div>
         </div>`;
     });
     html += `</div>`;
   }
   // 风控
   if(r.risk_assessment){
-    html += `<div class="sec-title">🛡️ 风险评估</div><div class="card"><div class="report-text">${r.risk_assessment}</div></div>`;
+    html += `<div class="sec-title">🛡️ 风险评估</div><div class="card">${formatAnalysisText(r.risk_assessment)}</div>`;
   }
   $('a-result').innerHTML = html;
 
@@ -1313,6 +1382,12 @@ function renderRecommend(r, isHistory){
   }
   board += `</div>`;
 
+  // —— 数据来源提示 ——
+  if(r.data_source){
+    const dsTip = r.data_source_tip || `本次荐股数据来源：${r.data_source}`;
+    board += `<div class="card" title="${dsTip}" style="border-color:rgba(59,130,246,.35)"><b>🧭 数据来源：</b>${r.data_source}<br><span class="hint">hover 查看数据源优先级</span></div>`;
+  }
+
   // —— 市场情绪看板（最高权重指标）——
   const st = r.sentiment;
   if(st && st.score!=null){
@@ -1492,12 +1567,12 @@ async function refreshTailPickStatus(){
     const st = await api('/api/tailpick/status');
     renderTailStatus(st);
   }catch(e){
-    renderTailStatus({enabled:false, phase:'error', window:'14:00-15:00', recommended_window:'14:30-14:55', reason:'无法获取尾盘状态，请确认服务已启动'});
+    renderTailStatus({enabled:false, phase:'error', window:'13:00-15:00', recommended_window:'14:00-14:55', reason:'无法获取尾盘状态，请确认服务已启动'});
   }
 }
 function renderTailStatus(st){
   const el=$('tp-status'); if(!el) return;
-  const phaseText={before:'未开放',preview:'预览窗口',formal:'最佳窗口',caution:'谨慎窗口',closed:'已关闭',error:'异常'}[st.phase]||st.phase;
+  const phaseText={before:'未开放(13:00起)',preview:'预览窗口(13:00-14:00)',formal:'最佳窗口(14:00-14:55)',caution:'谨慎窗口(14:55后)',closed:'已关闭',error:'异常'}[st.phase]||st.phase;
   el.innerHTML = `
     <div class="tail-pill">状态：<b class="${st.enabled?'up':'down'}">${phaseText}</b></div>
     <div class="tail-pill">开放窗口：<b>${st.window||'14:00-15:00'}</b></div>
@@ -1522,10 +1597,13 @@ async function doTailPick(){
 }
 function renderTailPick(r){
   const m=r.market||{}, b=m.breadth||{}, themes=m.main_themes||[];
+  const ds = r.data_source || '未知';
+  const dsTip = r.data_source_tip || `本次尾盘选股行情快照来源：${ds}`;
   let html = `<div class="tail-grid">
     <div class="metric"><div class="v">${m.score??'-'}</div><div class="l">市场情绪分（最高权重40%）</div></div>
     <div class="metric"><div class="v">${m.temperature||'-'}</div><div class="l">市场温度</div></div>
     <div class="metric"><div class="v">${b.limit_up??'-'} / ${b.limit_down??'-'}</div><div class="l">涨停 / 跌停</div></div>
+    <div class="metric" title="${dsTip}"><div class="v" style="font-size:18px">${ds}</div><div class="l">数据来源</div></div>
     <div class="metric"><div class="v">${r.candidates_count??0}</div><div class="l">硬过滤后候选池</div></div>
   </div>
   <div class="card"><b>主线题材：</b>${themes.slice(0,6).map(s=>`${s.name||s.sector||'-'}${s.week_pct!=null?`(${s.week_pct>=0?'+':''}${s.week_pct}%)`:''}`).join('、') || '暂无'}<br><span class="hint">${m.note||''}</span></div>`;

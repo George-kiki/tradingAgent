@@ -1,6 +1,6 @@
 """尾盘选股引擎。
 
-策略目标：交易日 14:00-15:00 盘中选出适合尾盘买入、次日早盘卖出的短线候选股。
+策略目标：交易日 13:00-15:00 盘中选出适合尾盘买入、次日早盘卖出的短线候选股。
 多 Agent 分工：候选池过滤 → 市场情绪 → 资金流 → 技术形态 → 风控 → 解释与交易计划。
 """
 from __future__ import annotations
@@ -17,8 +17,8 @@ from data.fetcher import get_fetcher
 from recommend.engine import eligible, resolve_name
 
 
-TAIL_START = dt.time(14, 0)
-TAIL_FORMAL_START = dt.time(14, 30)
+TAIL_START = dt.time(13, 0)
+TAIL_FORMAL_START = dt.time(14, 0)
 TAIL_CAUTION = dt.time(14, 55)
 TAIL_END = dt.time(15, 0)
 
@@ -31,13 +31,13 @@ def tailpick_status(now: dt.datetime | None = None) -> dict:
     enabled = is_weekday and TAIL_START <= t <= TAIL_END
     if not is_weekday:
         phase = "closed"
-        reason = "当前不是交易日，尾盘选股仅在交易日 14:00-15:00 开放。"
+        reason = "当前不是交易日，尾盘选股仅在交易日 13:00-15:00 开放。"
     elif t < TAIL_START:
         phase = "before"
-        reason = "尾盘选股依赖 14:00 后的午后资金与题材强度，尚未到开放时间。"
+        reason = "尾盘选股尚未到开放时间，13:00 后可开始预览候选池。"
     elif t < TAIL_FORMAL_START:
         phase = "preview"
-        reason = "当前可预览候选池，但 14:30 后资金稳定性更高，正式买入信号更可靠。"
+        reason = "当前可预览候选池，但 14:00 后资金稳定性更高，正式买入信号更可靠。"
     elif t < TAIL_CAUTION:
         phase = "formal"
         reason = "当前处于尾盘选股最佳窗口，可基于实时情绪、资金流与技术形态生成 Top5。"
@@ -46,13 +46,13 @@ def tailpick_status(now: dt.datetime | None = None) -> dict:
         reason = "已接近收盘，仍可生成但不建议追高新开仓，需重点防尾盘回落。"
     else:
         phase = "closed"
-        reason = "今日尾盘选股窗口已结束，该策略用于 14:00-15:00 买入、次日早盘卖出。"
+        reason = "今日尾盘选股窗口已结束，该策略用于 13:00-15:00 买入、次日早盘卖出。"
     return {
         "enabled": enabled,
         "phase": phase,
         "now": now.strftime("%Y-%m-%d %H:%M"),
-        "window": "14:00-15:00",
-        "recommended_window": "14:30-14:55",
+        "window": "13:00-15:00",
+        "recommended_window": "14:00-14:55",
         "reason": reason,
     }
 
@@ -392,6 +392,15 @@ class TailPickEngine:
         if not force and not st["enabled"]:
             return {"error": st["reason"], "status": st}
 
+        # 尾盘选股依赖盘中实时数据：强制清除全市场快照/指数/板块等关键缓存，
+        # 确保每次点击都重新拉取最新行情、资金流与题材热度。
+        from data.cache import invalidate_cache
+        invalidate_cache("spot:all:v2")
+        invalidate_cache("spot:all:v3")
+        invalidate_cache("ts_spot_all")
+        invalidate_cache("index_spot")
+        invalidate_cache("global_indices")
+
         cfg = TailPickConfig(count=count, max_pct=max_pct,
                              min_amount_yi=min_amount_yi, min_turnover=min_turnover,
                              only_mainline=only_mainline)
@@ -437,9 +446,12 @@ class TailPickEngine:
 
         out.sort(key=lambda x: x["score"], reverse=True)
         picks = out[:count]
+        source = getattr(self.fetcher, "last_market_spot_source", "未知")
         return {
             "as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "strategy": "今日14:00-15:00尾盘买入，明日早盘卖出",
+            "strategy": "今日13:00-15:00尾盘买入，明日早盘卖出",
+            "data_source": source,
+            "data_source_tip": f"本次尾盘选股行情快照来源：{source}。优先级：东方财富直连实时行情 → Tushare 日级快照 → AkShare 封装东财 → 新浪兜底。",
             "status": st,
             "market": market,
             "weights": {"market": 0.40, "fund": 0.35, "technical": 0.20, "risk_penalty": "0~20"},

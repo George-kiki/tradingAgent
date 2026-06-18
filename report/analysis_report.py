@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import json
 import os
+import re
 import time
 import uuid
 
@@ -19,6 +21,42 @@ _MAX = 200
 _LIGHT = {"bull": ("🟢", "#3fb950", "看多"),
           "bear": ("🔴", "#f85149", "看空"),
           "neutral": ("⚪", "#8b949e", "中性")}
+
+
+def _inline_fmt(s: str) -> str:
+    s = html.escape(str(s or ""))
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
+
+
+def _format_text(text: str) -> str:
+    lines = [x.strip() for x in str(text or "").replace("\r", "").split("\n") if x.strip()]
+    if not lines:
+        return '<div class="muted">暂无内容</div>'
+    out = []
+    for line in lines:
+        line = re.sub(r"^[-•·]\s*", "- ", line)
+        m = re.match(r"^#{1,4}\s*(.+)$", line)
+        if m:
+            out.append(f"<h4>{_inline_fmt(m.group(1))}</h4>"); continue
+        m = re.match(r"^\*\*(\d+)[).、]\s*(.+?)\*\*\s*$", line)
+        if m:
+            out.append(f'<h4><span class="idx">{m.group(1)}</span>{_inline_fmt(m.group(2))}</h4>'); continue
+        m = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+        if m:
+            out.append(f"<h4>{_inline_fmt(m.group(1))}</h4>"); continue
+        m = re.match(r"^(\d+)[).、]\s*(.+)$", line)
+        if m:
+            out.append(f'<div class="analysis-item"><span class="idx">{m.group(1)}</span>{_inline_fmt(m.group(2))}</div>'); continue
+        m = re.match(r"^-\s*(.+)$", line)
+        if m:
+            out.append(f'<div class="analysis-bullet">{_inline_fmt(m.group(1))}</div>'); continue
+        m = re.match(r"^\*\*(.+?)\*\*[:：]\s*(.*)$", line)
+        if m:
+            out.append(f'<div class="analysis-item"><strong>{_inline_fmt(m.group(1))}</strong>{("：" + _inline_fmt(m.group(2))) if m.group(2) else ""}</div>'); continue
+        out.append(f"<p>{_inline_fmt(line)}</p>")
+    return '<div class="prose-text">' + "".join(out) + "</div>"
 
 
 # ---------------- 存储 ----------------
@@ -282,6 +320,9 @@ def _build_earnings(r: dict) -> str:
                   f'{latest.get("end_date","")[:6]}</div>'
                   f'<div style="font-weight:700">{latest.get("type","")} {pc}</div>'
                   f'<div class="hint2">{(latest.get("change_reason") or "")[:100]}</div></div>')
+    else:
+        stale = sf.get("stale_note") or "该股暂无近期官方业绩预告"
+        cards += f'<div class="agent-card"><div class="agent-role">📋 官方业绩预告</div><div class="hint2">{stale}</div></div>'
     # 产业链景气
     if ch.get("available"):
         cards += (f'<div class="agent-card"><div class="agent-role">🔗 产业链/同业景气</div>'
@@ -294,7 +335,7 @@ def _build_earnings(r: dict) -> str:
                   f'<div class="hint2">{tr.get("note","")}</div></div>')
     llm = ""
     if e.get("llm_view") and not str(e["llm_view"]).startswith("["):
-        llm = f'<div class="agent-card"><div class="agent-role">🤖 AI 业绩前瞻推演</div><div>{e["llm_view"]}</div></div>'
+        llm = f'<div class="agent-card"><div class="agent-role">🤖 AI 业绩前瞻推演</div>{_format_text(e["llm_view"])}</div>'
     return (f'<h2>🔮 业绩前瞻（官方预告 + 产业链景气 + 趋势外推）</h2>'
             f'<div class="hint2">无真实订单数据，为基于公开信息的概率性推演。</div>'
             f'{cards}{llm}')
@@ -319,7 +360,7 @@ def _build_agents(r: dict) -> str:
     out = ""
     reports = r.get("analyst_reports")
     if reports:
-        cards = "".join(f'<div class="agent-card"><div class="agent-role">{k}</div><div>{v}</div></div>'
+        cards = "".join(f'<div class="agent-card"><div class="agent-role">{html.escape(str(k))}</div>{_format_text(v)}</div>'
                         for k, v in reports.items())
         out += f'<h2>👨‍💼 分析师团队</h2>{cards}'
     dec = r.get("decision") or {}
@@ -335,12 +376,30 @@ def _build_agents(r: dict) -> str:
     return out
 
 
+def _build_channel_research(r: dict) -> str:
+    cr = r.get("channel_research") or {}
+    if not cr.get("available"):
+        return ""
+    tags = "".join(f'<span class="tag">#{t}</span>' for t in cr.get("tags", [])[:10])
+    points = "".join(f'<li>{p}</li>' for p in cr.get("points", [])[:6])
+    llm = ""
+    if cr.get("llm_view") and not str(cr["llm_view"]).startswith("["):
+        llm = f'<div class="agent-card"><div class="agent-role">🤖 线索交叉验证</div>{_format_text(cr["llm_view"])}</div>'
+    raw = (cr.get("raw") or "")[:1200]
+    return (f'<h2>🔗 产业链/渠道线索</h2>'
+            f'<div class="hint2">{cr.get("risk_note", "Agent自动检索公开线索，需独立核验。")}</div>'
+            f'<div class="agent-card"><div class="agent-role">🏷️ 关键词</div><div>{tags or "—"}</div></div>'
+            f'<div class="agent-card"><div class="agent-role">📌 自动检索摘要</div><ul>{points}</ul></div>'
+            f'{llm}'
+            f'<details class="agent-card"><summary>查看自动检索原始材料</summary><div class="hint2" style="white-space:pre-wrap;margin-top:8px">{raw}</div></details>')
+
+
 # ---------------- 主入口 ----------------
 def build_analysis_html(r: dict) -> str:
     """根据 orchestrator.analyze 的结果构建完整自包含 HTML 报告。"""
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     body = (_build_hero(r) + _build_jury(r) + _build_divide(r)
-            + _build_valuation(r) + _build_earnings(r) + _build_scorecard(r)
+            + _build_valuation(r) + _build_earnings(r) + _build_channel_research(r) + _build_scorecard(r)
             + _build_strategies(r) + _build_agents(r))
     return _SKELETON.replace("{{TITLE}}", f"{r.get('name','')}（{r.get('symbol','')}）深度分析") \
                     .replace("{{NOW}}", now).replace("{{BODY}}", body)
@@ -424,6 +483,8 @@ td{padding:8px 10px;border-bottom:1px solid #21262d}
 .sc-cat{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 14px}
 .agent-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 14px;margin:8px 0}
 .agent-role{font-weight:700;color:#79c0ff;margin-bottom:4px}
+.prose-text{font-size:13.2px;color:#d7e3f3;line-height:1.8;overflow-wrap:anywhere}.prose-text p{margin:6px 0}.prose-text h4{font-size:14px;color:#79c0ff;margin:12px 0 7px;padding:5px 8px;border-left:3px solid #58a6ff;background:rgba(88,166,255,.06);border-radius:6px}.prose-text strong{color:#f0d37a}.analysis-item{background:rgba(255,255,255,.035);border:1px solid #30363d;border-radius:9px;padding:8px 10px;margin:6px 0}.analysis-bullet{position:relative;margin:6px 0 6px 16px;padding-left:12px}.analysis-bullet:before{content:"";position:absolute;left:-4px;top:.78em;width:5px;height:5px;border-radius:50%;background:#79c0ff}.idx{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:7px;background:rgba(88,166,255,.18);color:#79c0ff;font-size:11px;font-weight:900;margin-right:7px}.muted{color:#8b949e;font-size:12px}
+.tag{display:inline-block;background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.28);color:#79c0ff;border-radius:12px;padding:2px 8px;margin:2px 5px 2px 0;font-size:12px}
 .foot{text-align:center;color:#484f58;font-size:11px;margin-top:36px;padding-top:16px;border-top:1px solid #21262d}
 </style></head><body>
 <h1 style="font-size:22px;color:#58a6ff;text-align:center;margin-bottom:18px">📊 个股深度分析报告</h1>

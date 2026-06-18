@@ -768,10 +768,15 @@ class RecommendEngine:
 
         from agents.llm import get_llm
         prev_wr = self.db.latest_winrate(before=base_date)
+        spot_source = getattr(self.fetcher, "last_market_spot_source", "未知")
+        kline_source = getattr(self.fetcher, "last_kline_source", "未知")
+        data_source = f"行情快照：{spot_source}；K线：{kline_source}"
         return {
             "base_date": base_date,
             "count": len(picks),
             "picks": picks,
+            "data_source": data_source,
+            "data_source_tip": "每日荐股数据源优先级：东方财富直连 → Tushare → AkShare封装东财 → 新浪兜底。" + data_source,
             "weights": weights,
             "filters": filters,
             "market_note": market_note,

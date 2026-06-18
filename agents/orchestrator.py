@@ -1,6 +1,7 @@
 """编排器：串联数据采集 -> 量化策略 -> 多智能体分析 -> 最终决策。"""
 from __future__ import annotations
 
+import datetime as dt
 import pandas as pd
 
 from agents.analysts import ANALYSTS
@@ -11,7 +12,7 @@ from agents.risk_manager import RiskManager
 from agents.trader import TraderAgent
 from core.config import settings
 from core.indicators import latest_snapshot
-from data.fetcher import get_fetcher
+from data.fetcher import get_fetcher, _require_ak
 from strategies.library import STRATEGY_REGISTRY
 
 
@@ -39,6 +40,46 @@ class AgentOrchestrator:
 
         name = f.get_name(symbol)
         snapshot = latest_snapshot(df)
+
+        # 用全市场实时快照覆盖 K 线收盘价，保证分析页显示盘中最新价而非昨日收盘
+        try:
+            spot = f.get_market_spot()
+            if spot is not None and not spot.empty:
+                code_col = next((c for c in spot.columns if c in ("代码", "股票代码")), None)
+                price_col = next((c for c in spot.columns if "最新价" in c or c == "最新价"), None)
+                pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+                if code_col and price_col:
+                    row = spot[spot[code_col].astype(str).str.replace("","") == symbol]
+                    if not row.empty:
+                        r = row.iloc[0]
+                        rt_price = float(pd.to_numeric(r[price_col], errors="coerce")) if pd.notna(r.get(price_col)) else None
+                        rt_pct = float(pd.to_numeric(r[pct_col], errors="coerce")) if pct_col and pd.notna(r.get(pct_col)) else None
+                        if rt_price is not None:
+                            snapshot["close"] = round(rt_price, 3)
+                            snapshot["change_pct"] = round(rt_pct, 3) if rt_pct is not None else snapshot.get("change_pct")
+        except Exception:
+            pass
+
+        # 全市场快照未覆盖时（如快照不完整/沪市缺失），尝试个股实时报价兜底
+        if snapshot.get("date", "") < str(dt.date.today().strftime("%Y-%m-%d")):
+            try:
+                _require_ak()
+                import akshare as ak
+                m = "sh" if str(symbol).startswith(("6",)) else "sz"
+                q = ak.stock_zh_a_spot_em(symbol=str(symbol), market=m)
+                if q is not None and not q.empty:
+                    pc = next((c for c in q.columns if "最新价" in c), None)
+                    pcc = next((c for c in q.columns if "涨跌幅" in c), None)
+                    if pc:
+                        p = float(pd.to_numeric(q.iloc[0][pc], errors="coerce"))
+                        if pd.notna(p):
+                            snapshot["close"] = round(float(p), 3)
+                        if pcc:
+                            cp = float(pd.to_numeric(q.iloc[0][pcc], errors="coerce"))
+                            if pd.notna(cp):
+                                snapshot["change_pct"] = round(float(cp), 3)
+            except Exception:
+                pass
 
         # 全部策略信号
         signals = []
@@ -155,6 +196,14 @@ class AgentOrchestrator:
         except Exception as e:
             earnings = {"available": False, "summary": f"业绩前瞻分析失败: {e}"}
 
+        # 产业链/渠道线索：Agent 自动从公开新闻与搜索结果中寻找客户、订单、物料、产能等线索
+        from agents.channel_research import analyze_public_channel_research
+        try:
+            channel_research = analyze_public_channel_research(
+                self.fetcher, symbol, name=ctx.name, industry=industry, llm=self.llm)
+        except Exception as e:
+            channel_research = {"available": False, "summary": f"产业链线索自动检索失败: {e}"}
+
         # 综合评分 = 基本面 ×0.6 + 评委共识 ×0.4，并给出结论分档
         fund_score = self._fund_score(scorecard)
         consensus = jury.get("consensus", 50.0)
@@ -171,6 +220,7 @@ class AgentOrchestrator:
             "jury": jury,
             "valuation": valuation,
             "earnings_forecast": earnings,
+            "channel_research": channel_research,
             "overall_score": overall,
             "fund_score": fund_score,
             "consensus_score": consensus,
@@ -198,6 +248,9 @@ class AgentOrchestrator:
                 analyst_reports[agent.cn_role] = agent.run(ctx)
             except Exception as e:
                 analyst_reports[agent.cn_role] = f"[分析失败: {e}]"
+        if channel_research.get("available"):
+            analyst_reports["产业链调研分析师"] = (
+                channel_research.get("llm_view") or channel_research.get("summary") or "已录入产业链/渠道线索，需进一步核验。")
         reports_text = "\n\n".join(f"【{k}】\n{v}" for k, v in analyst_reports.items())
 
         debate = run_debate(ctx, reports_text, rounds=settings.debate_rounds)
