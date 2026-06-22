@@ -784,8 +784,21 @@ class DataFetcher:
         return pd.DataFrame()
 
     # ---------- 市场广度（涨跌家数）----------
-    def get_market_breadth(self) -> dict:
-        """全市场涨跌家数、涨停跌停、平均涨幅等。"""
+    def get_market_breadth(self, as_of: str = "") -> dict:
+        """全市场涨跌家数、涨停跌停、平均涨幅等。
+
+        as_of: 指定日期 YYYYMMDD，为空则用实时快照（默认）。
+               传历史日期时走 Tushare daily_basic 保证时间一致性。
+        """
+        # 历史日期：走 Tushare 获取当日涨跌家数（保证与 base_date 一致）
+        if as_of and self._ts and self._ts.ready:
+            # 去掉可能的 "-" 分隔符
+            date_str = as_of.replace("-", "")
+            breadth = self._ts.get_breadth_on_date(date_str)
+            if breadth:
+                return breadth
+
+        # 实时/兜底：全市场快照
         spot = self.get_market_spot()
         if spot is None or spot.empty:
             return {}

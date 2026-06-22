@@ -580,7 +580,8 @@ class RecommendEngine:
         from recommend.universe import build_dynamic_universe
         try:
             dyn_pool, sector_map, hot_week = build_dynamic_universe(
-                self.fetcher, base_pool=(pool or RECOMMEND_POOL))
+                self.fetcher, base_pool=(pool or RECOMMEND_POOL),
+                as_of=base_date)  # 历史日期回退固定池，保证时间一致性
         except Exception:
             dyn_pool, sector_map, hot_week = [], {}, []
         if not dyn_pool:  # 兜底：动态池失败回退固定池

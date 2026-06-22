@@ -72,25 +72,39 @@ def _eligible(symbol: str) -> bool:
     return s.startswith(("600", "601", "603", "605", "000", "001", "002", "003"))
 
 
-def build_dynamic_universe(fetcher, base_pool: Optional[list[str]] = None
+def build_dynamic_universe(fetcher, base_pool: Optional[list[str]] = None,
+                           as_of: str = ""
                            ) -> tuple[list[str], dict[str, dict], list[dict]]:
     """构建动态候选池。
 
-    返回 (候选代码列表, symbol->{sector,sector_type,sector_rank,week_pct} 映射, 主线板块列表)。
-    主线板块列表即近一周热度榜（已排序），供情绪看板与选股加分使用。
+    Args:
+        fetcher: 数据获取器
+        base_pool: 基础候选池
+        as_of: 基准日期 YYYY-MM-DD，为空=当日。历史日期跳过实时板块 API。
+    Returns:
+        (候选代码列表, symbol->{sector,...} 映射, 主线板块列表)
     """
     base_pool = base_pool or []
     sector_map: dict[str, dict] = {}      # symbol -> 所属最热板块信息
     hot_sectors: list[dict] = []
 
-    # 1) 主线板块：默认使用当日行业涨幅榜，速度更稳；如需多日主线可设置 REC_USE_WEEK_SECTORS=true。
-    # 近一周热度榜会逐板块拉历史，遇到东财限流时可能非常慢，不适合作为 Web 实时生成默认路径。
-    use_week = str(os.getenv("REC_USE_WEEK_SECTORS", "false")).lower() in {"1", "true", "yes", "y"}
-    try:
-        hot_sectors = (fetcher.get_hot_sectors_week(top=TOP_SECTORS * 2) if use_week
-                       else fetcher.get_hot_sectors(limit=TOP_SECTORS * 2)) or []
-    except Exception:
+    # 判断是否历史回溯：与今天相差超过1天则视为历史
+    import datetime as _dt
+    today_str = _dt.date.today().strftime("%Y-%m-%d")
+    is_historical = bool(as_of) and as_of != today_str
+
+    # 1) 主线板块
+    if is_historical:
+        # 历史回溯：不用当日实时板块（会导致时间不一致）
+        # 直接走兜底映射，保证历史选股的一致性
         hot_sectors = []
+    else:
+        use_week = str(os.getenv("REC_USE_WEEK_SECTORS", "false")).lower() in {"1", "true", "yes", "y"}
+        try:
+            hot_sectors = (fetcher.get_hot_sectors_week(top=TOP_SECTORS * 2) if use_week
+                           else fetcher.get_hot_sectors(limit=TOP_SECTORS * 2)) or []
+        except Exception:
+            hot_sectors = []
 
     universe: list[str] = []
     seen: set[str] = set()

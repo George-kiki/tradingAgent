@@ -214,7 +214,8 @@ def compute_market_sentiment(fetcher, base_date: Optional[str] = None,
     """
     breadth = {}
     try:
-        breadth = fetcher.get_market_breadth() or {}
+        # base_date 传给 get_market_breadth：历史日期走 Tushare，当日为空走实时快照
+        breadth = fetcher.get_market_breadth(as_of=base_date or "") or {}
     except Exception:
         breadth = {}
 

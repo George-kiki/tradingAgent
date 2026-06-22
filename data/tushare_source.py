@@ -499,6 +499,43 @@ class TushareSource:
         out = cached_call(key, _fetch, ttl=21600)
         return out or []
 
+    # ---------- 历史市场广度（用于 base_date 回溯）----------
+    def get_breadth_on_date(self, trade_date: str) -> dict:
+        """指定交易日的涨跌家数/涨停跌停/平均涨幅（用于历史回溯的一致性）。
+
+        Args:
+            trade_date: 交易日 YYYYMMDD（如 '20260618'）
+        Returns:
+            {total, up, down, flat, limit_up, limit_down, avg_pct, median_pct}
+            失败返回 {}
+        """
+        if not self._ready:
+            return {}
+        key = f"ts_breadth:{trade_date}"
+
+        def _fetch():
+            try:
+                df = self._pro.daily(trade_date=trade_date,
+                                     fields="ts_code,pct_chg")
+                if df is None or df.empty:
+                    return None
+                pct = pd.to_numeric(df["pct_chg"], errors="coerce").dropna()
+                return {
+                    "total": int(len(pct)),
+                    "up": int((pct > 0).sum()),
+                    "down": int((pct < 0).sum()),
+                    "flat": int((pct == 0).sum()),
+                    "limit_up": int((pct >= 9.8).sum()),
+                    "limit_down": int((pct <= -9.8).sum()),
+                    "avg_pct": round(float(pct.mean()), 2),
+                    "median_pct": round(float(pct.median()), 2),
+                }
+            except Exception:
+                return None
+
+        out = cached_call(key, _fetch, ttl=86400)  # 历史日数据不变，长缓存
+        return out or {}
+
 
 @lru_cache(maxsize=1)
 def get_tushare() -> TushareSource:

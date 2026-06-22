@@ -395,11 +395,20 @@ class TailPickEngine:
         # 尾盘选股依赖盘中实时数据：强制清除全市场快照/指数/板块等关键缓存，
         # 确保每次点击都重新拉取最新行情、资金流与题材热度。
         from data.cache import invalidate_cache
+        # 全市场快照
         invalidate_cache("spot:all:v2")
         invalidate_cache("spot:all:v3")
         invalidate_cache("ts_spot_all")
+        invalidate_cache("as_spot_all")          # A-Stock 腾讯全市场快照
+        # 指数
         invalidate_cache("index_spot")
         invalidate_cache("global_indices")
+        # 板块/主线（之前遗漏，导致尾盘选股可能用旧缓存）
+        invalidate_cache("as_sectors:10")        # A-Stock 板块涨幅榜
+        invalidate_cache("as_sectors:5")         # 小数量变体
+        invalidate_cache("as_sectors_snapshot")  # 自聚合板块兜底
+        invalidate_cache("sectors:10")           # Fetcher AkShare 板块
+        invalidate_cache("as_sectors_week:12")   # 近一周主线板块
 
         cfg = TailPickConfig(count=count, max_pct=max_pct,
                              min_amount_yi=min_amount_yi, min_turnover=min_turnover,
