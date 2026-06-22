@@ -1611,21 +1611,23 @@ function renderRecommend(r, isHistory){
 // ===================== 历史回测（每日荐股 + 尾盘荐股共用） =====================
 async function doRecommendBacktest(){
   const days = $('rc-bt-days')?.value || 30;
-  $('rc-bt-result').innerHTML = loading(`回测中：回填最近 ${days} 日 → 逐日结算 → 聚合统计，首次需下载历史K线，请稍候...`);
+  $('rc-bt-result').innerHTML = loading(`回测中：结算 + 聚合已有数据（仅读DB，秒出）...`);
   try{
     const r = await fetch('/api/recommend/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:+days})}).then(x=>x.json());
     if(r.error){ $('rc-bt-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    if(r.message){ $('rc-bt-result').innerHTML=`<div class="card hint">${r.message}<br><span class="dim">CLI回填: python main.py recommend --backfill 30</span></div>`; return; }
     renderBacktest(r, 'rc-bt-result');
-  }catch(e){ $('rc-bt-result').innerHTML=`<div class="card down">请求超时，回测需拉取多日K线数据，请稍后重试。</div>`; }
+  }catch(e){ $('rc-bt-result').innerHTML=`<div class="card down">请求失败，请确认服务已启动且已有荐股记录。</div>`; }
 }
 async function doTailRecommendBacktest(){
   const days = $('tr-bt-days')?.value || 30;
-  $('tr-bt-result').innerHTML = loading(`回测中：回填最近 ${days} 日 → 逐日结算 → 聚合统计，请稍候...`);
+  $('tr-bt-result').innerHTML = loading(`回测中：结算 + 聚合已有数据（仅读DB，秒出）...`);
   try{
     const r = await fetch('/api/tail-recommend/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:+days})}).then(x=>x.json());
     if(r.error){ $('tr-bt-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    if(r.message){ $('tr-bt-result').innerHTML=`<div class="card hint">${r.message}<br><span class="dim">CLI回填: python main.py recommend --backfill 30</span></div>`; return; }
     renderBacktest(r, 'tr-bt-result');
-  }catch(e){ $('tr-bt-result').innerHTML=`<div class="card down">请求超时，请稍后重试。</div>`; }
+  }catch(e){ $('tr-bt-result').innerHTML=`<div class="card down">请求失败，请确认服务已启动且已有荐股记录。</div>`; }
 }
 function renderBacktest(r, containerId){
   if(r.empty){ $(containerId).innerHTML='<div class="card hint">暂无历史数据，请先生成荐股记录。</div>'; return; }

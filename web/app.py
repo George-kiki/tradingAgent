@@ -621,25 +621,23 @@ def _compute_backtest(db, days: int = 60) -> dict:
 
 @app.post("/api/recommend/backtest")
 def api_recommend_backtest(payload: dict = Body(...)):
-    """触发每日荐股历史回测（回填 + 结算 + 聚合统计）。"""
+    """每日荐股历史回测（只读已落库数据，秒出）。需回填数据请用 CLI: python main.py recommend --backfill 30"""
     days = min(int(payload.get("days", 30)), 60)
-    from recommend.engine import RecommendEngine
     from recommend.database import RecommendDB
     from recommend.winrate import settle_all_pending
     from data.fetcher import get_fetcher
 
     try:
-        eng = RecommendEngine()
         db = RecommendDB()
         fetcher = get_fetcher()
 
-        # 回填未生成的历史日期
-        eng.backfill(n_days=days)
-        # 确保全部结算
+        # 结算已有的未结算批次
         settle_all_pending(db, fetcher)
-        # 聚合
+        # 聚合（仅读 DB，不重新生成）
         result = _compute_backtest(db, days)
         result["mode"] = "每日荐股"
+        if result.get("empty") or not result.get("daily"):
+            result["message"] = "暂无足够历史数据。请先用 'python main.py recommend --backfill 30' 回填历史荐股。"
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -647,23 +645,21 @@ def api_recommend_backtest(payload: dict = Body(...)):
 
 @app.post("/api/tail-recommend/backtest")
 def api_tail_recommend_backtest(payload: dict = Body(...)):
-    """触发尾盘荐股历史回测（与每日荐股共用引擎和结算逻辑）。"""
+    """尾盘荐股历史回测（只读已落库数据，秒出）。需回填: python main.py tail-recommend --backfill 30"""
     days = min(int(payload.get("days", 30)), 60)
-    from recommend.engine import RecommendEngine
     from recommend.database import RecommendDB
     from recommend.winrate import settle_all_pending
     from data.fetcher import get_fetcher
 
     try:
-        eng = RecommendEngine()
         db = RecommendDB()
         fetcher = get_fetcher()
-
-        eng.backfill(n_days=days)
         settle_all_pending(db, fetcher)
         result = _compute_backtest(db, days)
         result["mode"] = "尾盘荐股"
-        result["note"] = "尾盘荐股与每日荐股共用引擎，入场价为当日收盘价、验证为次日收盘价。实际尾盘操作可在14:30后参照入场价买入。"
+        result["note"] = "入场价=当日收盘价 · 验证=次日收盘价 · 14:30后参照入场价尾盘买入"
+        if result.get("empty") or not result.get("daily"):
+            result["message"] = "暂无足够历史数据。请先用 CLI 回填: python main.py recommend --backfill 30"
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
