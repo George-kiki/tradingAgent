@@ -543,6 +543,70 @@ def api_recommend_history(limit: int = Query(30)):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+# ---------------- 尾盘荐股 ----------------
+
+
+def _tail_recommend_status() -> dict:
+    """尾盘荐股重新生成开关：14:30 开放。"""
+    from core.config import settings
+
+    hm = settings.tail_recommend_push_time or "14:30"
+    try:
+        hour, minute = [int(x) for x in hm.split(":", 1)]
+    except Exception:
+        hour, minute = 14, 30
+        hm = "14:30"
+
+    now = dt.datetime.now()
+    unlock = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    can = now >= unlock and now.weekday() < 5
+    next_unlock = unlock if not can else unlock + dt.timedelta(days=1)
+    reason = (
+        "尾盘荐股在 14:30 盘中运行，使用当日实时数据，推荐的票可在 15:00 收盘前买入。"
+        "14:30 前数据不够充分，请稍后再试。"
+    )
+    return {
+        "can_regenerate": can,
+        "unlock_time": unlock.strftime("%Y-%m-%d %H:%M"),
+        "next_unlock_time": next_unlock.strftime("%Y-%m-%d %H:%M"),
+        "configured_time": hm,
+        "strategy": "14:30 盘中推荐，今日尾盘买入，次日早盘验证",
+        "reason": reason,
+    }
+
+
+@app.get("/api/tail-recommend/status")
+def api_tail_recommend_status():
+    return _tail_recommend_status()
+
+
+@app.get("/api/tail-recommend")
+def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
+    """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。"""
+    status = _tail_recommend_status()
+    if not status["can_regenerate"] and not force:
+        return JSONResponse({"error": status["reason"], **status}, status_code=403)
+
+    from recommend.engine import RecommendEngine
+    try:
+        if not force:
+            from recommend.database import RecommendDB
+            db = RecommendDB()
+            latest = db.latest_recommendation_date()
+            if latest == dt.date.today().strftime("%Y-%m-%d") and db.get_recommendations(latest):
+                res = _recommend_view(db, latest)
+                res["cached"] = True
+                return JSONResponse(res)
+
+        eng = RecommendEngine()
+        res = eng.run(count=count)
+        if res.get("error"):
+            return JSONResponse(res, status_code=400)
+        return JSONResponse({**res, "tailpick_mode": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 # ---------------- 尾盘选股 ----------------
 @app.get("/api/tailpick/status")
 def api_tailpick_status():

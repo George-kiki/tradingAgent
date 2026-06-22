@@ -335,6 +335,7 @@
     <div class="tab" data-tab="screener">🔎 自定义选股</div>
     <div class="tab" data-tab="value">💎 价值挖掘</div>
     <div class="tab" data-tab="recommend">📌 每日荐股</div>
+    <div class="tab" data-tab="tail-recommend">🕝 尾盘荐股</div>
     <div class="tab" data-tab="tailpick">🌙 尾盘选股</div>
     <div class="tab" data-tab="review">📋 盘后复盘</div>
     <div class="tab" data-tab="strategies">📚 策略库</div>
@@ -468,6 +469,21 @@
     </div>
     <div id="rc-board"></div>
     <div id="rc-result"></div>
+  </div>
+
+  <!-- 尾盘荐股 -->
+  <div class="panel" id="p-tail-recommend">
+    <div class="tail-status" id="tr-status"></div>
+    <div class="row">
+      <select id="tr-count">
+        <option value="5" selected>推荐 5 只</option>
+        <option value="8">推荐 8 只</option>
+        <option value="10">推荐 10 只</option>
+      </select>
+      <button id="tr-run" onclick="doTailRecommend()" style="background:var(--gold);color:#000">🕝 生成尾盘荐股</button>
+      <span class="hint">14:30 盘中推荐 · 10策略共识+8维基本面 · 今日尾盘买入 · 次日早盘验证</span>
+    </div>
+    <div id="tr-result"></div>
   </div>
 
   <!-- 尾盘选股 -->
@@ -1560,6 +1576,73 @@ function renderRecommend(r, isHistory){
     },30);
   });
 }
+
+// ===================== 尾盘荐股 =====================
+async function refreshTailRecommendStatus(){
+  try{
+    const st = await api('/api/tail-recommend/status');
+    renderTailRecommendStatus(st);
+  }catch(e){
+    renderTailRecommendStatus({can_regenerate:false, reason:'无法获取状态，请确认服务已启动', configured_time:'14:30'});
+  }
+}
+function renderTailRecommendStatus(st){
+  const s = $('tr-status');
+  const btn = $('tr-run');
+  if(!s || !btn) return;
+  if(st.can_regenerate){
+    s.innerHTML = `<span style="color:var(--green)">🟢 尾盘荐股已开放</span>`;
+    btn.disabled = false;
+    btn.title = '';
+  }else{
+    const hm = st.configured_time || '14:30';
+    s.innerHTML = `<span style="color:var(--red)">🔴 未开放</span>`;
+    btn.disabled = true;
+    btn.title = st.reason || hm+' 后开放';
+  }
+}
+async function doTailRecommend(){
+  const btn = $('tr-run');
+  if(btn && btn.disabled){ $('tr-result').innerHTML=`<div class="card hint">${btn.title||'当前不在尾盘荐股窗口'}</div>`; return; }
+  if(btn) btn.disabled = true;
+  const count = $('tr-count')?.value || 5;
+  $('tr-result').innerHTML = loading('正在生成尾盘荐股：结算→反思→10策略共识→8维基本面→选股，请稍候...');
+  try{
+    const r = await api('/api/tail-recommend?'+new URLSearchParams({count}));
+    if(r.error){ $('tr-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailRecommendStatus(); if(btn) btn.disabled = false; return; }
+    renderTailRecommend(r);
+  }catch(e){
+    $('tr-result').innerHTML=`<div class="card down">请求超时或网络异常</div>`;
+  }
+  if(btn) btn.disabled = false;
+}
+function renderTailRecommend(r){
+  const picks = r.picks || [];
+  let html = '';
+  if(r.market_note){ html += `<div class="card hint">📉 ${r.market_note}</div>`; }
+  if(!picks.length){
+    html += `<div class="card hint">暂无符合尾盘荐股条件的标的。</div>`;
+    $('tr-result').innerHTML = html;
+    return;
+  }
+  html += `<div class="sec-title">🕝 尾盘荐股 Top ${picks.length}（基于 ${r.base_date} 盘中数据 · 今日尾盘买入 · 次日验证）</div>`;
+  html += `<div class="pick-grid">`;
+  for(const p of picks){
+    const tags = (p.tags||[]).slice(0,5).map(t=>`<span class="tag">${t}</span>`).join('');
+    const score = p.score != null ? Number(p.score).toFixed(2) : '-';
+    html += `<div class="pick-card">
+      <div class="pick-head"><strong>${p.name||'?'}</strong> <span class="dim">${p.symbol}</span> <span class="tag">${p.industry||'—'}</span></div>
+      <div>入场 ¥${p.entry_price||'—'} ｜ 评分 ${score} ｜ RSI ${(p.factors||{}).rsi||'-'}</div>
+      <div class="dim">${tags}</div>
+      <div class="dim" style="margin-top:4px">${p.reason || ''}</div>
+    </div>`;
+  }
+  html += `</div>`;
+  html += `<div class="hint" style="margin-top:10px">⚠️ 尾盘荐股使用盘中数据，今日 15:00 前可买入，次日早盘验证。回测仅供参考。</div>`;
+  $('tr-result').innerHTML = html;
+}
+refreshTailRecommendStatus();
+setInterval(refreshTailRecommendStatus, 60 * 1000);
 
 // ===================== 尾盘选股 =====================
 async function refreshTailPickStatus(){
