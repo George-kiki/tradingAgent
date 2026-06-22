@@ -177,6 +177,14 @@ def cmd_recommend(args):
     console.print("[dim]结果已持久化到本地数据库。打开 Web「每日荐股」可看卡片式展示。[/dim]")
 
 
+def cmd_tail_recommend(args):
+    """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。"""
+    from scheduler import job_tail_recommend
+
+    console.print("[bold cyan]🕝 生成尾盘荐股（盘中推荐·尾盘买入·次日验证）...[/bold cyan]")
+    job_tail_recommend(count=args.count, force=args.force)
+
+
 def cmd_value(args):
     from value.engine import ValueEngine
 
@@ -278,6 +286,11 @@ def build_parser():
     rc.add_argument("--date", default="", help="基准数据日期 YYYY-MM-DD（默认最新交易日）")
     rc.add_argument("--backfill", type=int, default=0, help="先回填最近 N 个交易日以构建历史/触发反思")
     rc.set_defaults(func=cmd_recommend)
+
+    trc = sub.add_parser("tail-recommend", help="尾盘荐股：14:30 盘中推荐，尾盘买入·次日验证")
+    trc.add_argument("--count", type=int, default=5, help="推荐数量")
+    trc.add_argument("--force", action="store_true", help="非交易日也执行")
+    trc.set_defaults(func=cmd_tail_recommend)
 
     v = sub.add_parser("value", help="价值挖掘五步分析（瓶颈→标的→财务→证伪→熔断）")
     v.add_argument("target", help="行业或标的，如 “光伏胶膜” 或 600519")

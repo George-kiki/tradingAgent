@@ -41,21 +41,29 @@ def job_select(top_n: int = 10, force: bool = False) -> str:
     return md
 
 
-def job_recommend(count: int = 5, force: bool = False) -> str:
-    """每日荐股（含反思迭代）并推送。"""
+def job_recommend(count: int = 5, force: bool = False, tailpick_mode: bool = False) -> str:
+    """每日荐股（含反思迭代）并推送。
+
+    tailpick_mode=True: 尾盘荐股模式，14:30运行，今日尾盘买入、次日验证。
+    """
+    mode_label = "尾盘荐股" if tailpick_mode else "每日荐股"
     if not force and not _is_trading_day():
-        print("[荐股] 非交易日，跳过")
+        print(f"[{mode_label}] 非交易日，跳过")
         return ""
     from notify import push
     from recommend.engine import RecommendEngine
 
-    print("[荐股] 开始生成（结算→反思→选股）...")
+    print(f"[{mode_label}] 开始生成（结算→反思→选股）...")
     res = RecommendEngine().run(count=count)
     if res.get("error"):
-        print(f"[荐股] 失败：{res['error']}")
+        print(f"[{mode_label}] 失败：{res['error']}")
         return ""
 
-    lines = [f"# 📌 每日荐股（基于 {res['base_date']} 数据）"]
+    title_prefix = "🕝 尾盘荐股" if tailpick_mode else "📌 每日荐股"
+    strategy_note = "> 🎯 策略：14:30 盘中推荐，今日尾盘买入，次日早盘验证。" if tailpick_mode else ""
+    lines = [f"# {title_prefix}（基于 {res['base_date']} 数据）"]
+    if strategy_note:
+        lines.append(strategy_note)
     pwr = res.get("prev_winrate")
     if pwr:
         flag = "✅达标" if pwr["win_rate"] >= res["threshold"] else "⚠️未达标·已反思迭代"
@@ -71,9 +79,14 @@ def job_recommend(count: int = 5, force: bool = False) -> str:
                      f"入场参考 ¥{p.get('entry_price','')} ｜ 评分 {p.get('score','')}")
         lines.append(f"   {p.get('reason','')}")
     md = "\n".join(lines)
-    push("每日AI荐股·反思迭代", md)
-    print(f"[荐股] 已推送 Top{res['count']}")
+    push(f"{title_prefix}·反思迭代", md)
+    print(f"[{mode_label}] 已推送 Top{res['count']}")
     return md
+
+
+def job_tail_recommend(count: int = 5, force: bool = False) -> str:
+    """尾盘荐股：14:30 盘中推荐，当日尾盘买入、次日验证。"""
+    return job_recommend(count=count, force=force, tailpick_mode=True)
 
 
 def job_review(force: bool = False) -> str:
@@ -112,14 +125,20 @@ def start_scheduler():
     sh, sm = _parse_hm(settings.select_push_time)
     rh, rm = _parse_hm(settings.review_push_time)
     ch, cm = _parse_hm(settings.recommend_push_time)
+    th, tm = _parse_hm(settings.tail_recommend_push_time)
 
     sched.add_job(job_select, CronTrigger(day_of_week="mon-fri", hour=sh, minute=sm), id="select")
     sched.add_job(job_review, CronTrigger(day_of_week="mon-fri", hour=rh, minute=rm), id="review")
     sched.add_job(lambda: job_recommend(settings.recommend_count),
                   CronTrigger(day_of_week="mon-fri", hour=ch, minute=cm), id="recommend")
+    if settings.tail_recommend_enabled:
+        sched.add_job(lambda: job_tail_recommend(settings.recommend_count),
+                      CronTrigger(day_of_week="mon-fri", hour=th, minute=tm), id="tail_recommend")
 
     print("=" * 50)
     print("定时调度已启动（工作日）：")
+    if settings.tail_recommend_enabled:
+        print(f"  🕝 尾盘荐股推送：{settings.tail_recommend_push_time}（盘中推荐·尾盘买入·次日验证）")
     print(f"  - 每日荐股推送：{settings.recommend_push_time}（含反思迭代）")
     print(f"  - 每日选股推送：{settings.select_push_time}")
     print(f"  - 盘后复盘推送：{settings.review_push_time}")

@@ -46,6 +46,9 @@ class Settings:
     select_push_time: str = os.getenv("SELECT_PUSH_TIME", "09:00")
     review_push_time: str = os.getenv("REVIEW_PUSH_TIME", "15:30")
     recommend_push_time: str = os.getenv("RECOMMEND_PUSH_TIME", "18:30")
+    # 尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证
+    tail_recommend_push_time: str = os.getenv("TAIL_RECOMMEND_PUSH_TIME", "14:30")
+    tail_recommend_enabled: bool = os.getenv("TAIL_RECOMMEND_ENABLED", "true").lower() in {"1", "true", "yes", "y"}
 
     # ---- 每日荐股 + 反思迭代 ----
     recommend_count: int = int(os.getenv("REC_COUNT", "5"))            # 每日推荐数量
