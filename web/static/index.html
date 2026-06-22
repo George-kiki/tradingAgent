@@ -483,6 +483,7 @@
       <button id="tr-run" onclick="doTailRecommend()" style="background:var(--gold);color:#000">🕝 生成尾盘荐股</button>
       <span class="hint">14:30 盘中推荐 · 10策略共识+8维基本面 · 今日尾盘买入 · 次日早盘验证</span>
     </div>
+    <div id="tr-board"></div>
     <div id="tr-result"></div>
   </div>
 
@@ -1603,45 +1604,158 @@ function renderTailRecommendStatus(st){
 }
 async function doTailRecommend(){
   const btn = $('tr-run');
-  const forceMode = btn && btn.disabled;  // 非窗口期强制生成
+  const forceMode = btn && btn.disabled;
   if(btn) btn.disabled = true;
   const count = $('tr-count')?.value || 5;
   const q = new URLSearchParams({count});
   if(forceMode) q.set('force', '1');
+  $('tr-board').innerHTML = '';
   $('tr-result').innerHTML = loading('正在生成尾盘荐股：结算→反思→10策略共识→8维基本面→选股，请稍候...');
   try{
     const r = await api('/api/tail-recommend?'+q.toString());
     if(r.error){ $('tr-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailRecommendStatus(); if(btn) btn.disabled = false; return; }
     renderTailRecommend(r);
   }catch(e){
-    $('tr-result').innerHTML=`<div class="card down">请求超时或网络异常</div>`;
+    $('tr-result').innerHTML=`<div class="card down">请求超时或网络异常。尾盘荐股需拉取全市场数据，首次约需60秒；若已生成过，请稍后重试。</div>`;
   }
   if(btn) btn.disabled = false;
 }
 function renderTailRecommend(r){
-  const picks = r.picks || [];
-  let html = '';
-  if(r.market_note){ html += `<div class="card hint">📉 ${r.market_note}</div>`; }
-  if(!picks.length){
-    html += `<div class="card hint">暂无符合尾盘荐股条件的标的。</div>`;
-    $('tr-result').innerHTML = html;
-    return;
+  const th = (r.threshold||0.7)*100;
+  // —— 胜率看板 ——
+  let board = `<div class="wr-board">`;
+  const pwr = r.prev_winrate;
+  if(pwr){
+    const ok = pwr.win_rate >= (r.threshold||0.7);
+    board += `<div class="wr-card"><div class="big ${ok?'wr-ok':'wr-bad'}">${(pwr.win_rate*100).toFixed(0)}%</div><div class="lbl">昨日胜率（${pwr.base_date}）</div></div>`;
+    board += `<div class="wr-card"><div class="big">${th.toFixed(0)}%</div><div class="lbl">达标线</div></div>`;
+    board += `<div class="wr-card"><div class="big ${(pwr.avg_return>=0)?'wr-ok':'wr-bad'}">${pwr.avg_return>=0?'+':''}${pwr.avg_return}%</div><div class="lbl">昨日平均次日收益</div></div>`;
+    board += `<div class="wr-card"><div class="big">${pwr.wins}/${pwr.total}</div><div class="lbl">昨日命中</div></div>`;
+  } else {
+    board += `<div class="wr-card" style="grid-column:1/-1"><div class="lbl">暂无昨日胜率（首批推荐，次日结算后产生）</div></div>`;
   }
-  html += `<div class="sec-title">🕝 尾盘荐股 Top ${picks.length}（基于 ${r.base_date} 盘中数据 · 今日尾盘买入 · 次日验证）</div>`;
-  html += `<div class="pick-grid">`;
-  for(const p of picks){
-    const tags = (p.tags||[]).slice(0,5).map(t=>`<span class="tag">${t}</span>`).join('');
-    const score = p.score != null ? Number(p.score).toFixed(2) : '-';
+  board += `</div>`;
+  // 数据源
+  if(r.data_source){
+    board += `<div class="card hint"><b>数据源：</b>${r.data_source}</div>`;
+  }
+  // —— 市场情绪看板 ——
+  const st = r.sentiment;
+  if(st && st.score!=null){
+    const sc = st.score; const temp = st.temperature||'';
+    const emoji = st.emoji||(sc>=80?'🔥':sc>=62?'☀️':sc>=45?'⛅':sc>=30?'🌧️':'❄️');
+    const barColor = sc>=62?'var(--green)':sc>=45?'var(--gold)':'var(--red)';
+    const det = st.details||{};
+    const detName = {breadth:'涨跌广度',limits:'涨停跌停',trend:'大盘趋势',volume:'量能',sectors:'板块热度',northbound:'北向资金'};
+    let chips = '';
+    Object.keys(detName).forEach(k=>{if(det[k]){const dv=det[k]; chips+=`<span class="sent-chip"><b>${detName[k]}</b> ${dv.score}${dv.note?(' · '+dv.note):''}</span>`;}});
+    const lead = st.leading_sectors||[];
+    let leadHtml = '';
+    if(lead.length){
+      const maxw = Math.max(...lead.map(s=>Math.abs(s.week_pct||s.day_pct||0)),1);
+      leadHtml = `<div class="sent-lead"><div class="sent-lead-t">🚀 近一周市场主线</div>`;
+      lead.slice(0,6).forEach((s,i)=>{
+        const wp=(s.week_pct!=null)?s.week_pct:(s.day_pct!=null?s.day_pct:null);
+        const w=wp!=null?Math.max(Math.abs(wp)/maxw*100,6):30;
+        const col=(wp==null)?'var(--sub)':(wp>=0?'var(--red)':'var(--green)');
+        const wpTxt=wp!=null?`${wp>=0?'+':''}${wp.toFixed(1)}%`:'—';
+        leadHtml+=`<div class="lead-row"><span class="lead-rank">${i+1}</span><span class="lead-name">${s.name||''}</span><span class="lead-bar"><span class="lead-fill" style="width:${w}%;background:${col}"></span></span><span class="lead-pct" style="color:${col}">${wpTxt}</span></div>`;
+      });
+      leadHtml+=`</div>`;
+    }
+    board += `<div class="sent-board"><div class="sent-gauge"><div class="sent-emoji">${emoji}</div><div class="sent-score" style="color:${barColor}">${sc}</div><div class="sent-temp">市场情绪 · ${temp}</div>${st.weight?`<div class="sent-w">最高权重 ×${st.weight}</div>`:''}</div><div class="sent-body"><div class="sent-bar"><div class="sent-bar-fill" style="width:${sc}%;background:${barColor}"></div></div><div class="sent-chips">${chips||'<span class="hint">情绪分项数据加载中...</span>'}</div>${leadHtml}${st.summary?`<div class="sent-sum">${st.summary}</div>`:''}</div></div>`;
+  }
+  // —— 反思 ——
+  const ref = r.reflection;
+  if(ref){
+    board += `<div class="reflect-box"><h3>🔁 反思迭代（昨日胜率未达标 ${th.toFixed(0)}%，已自动调整）</h3>`;
+    board += `<div class="reflect-conclusion">📝 ${ref.conclusion||''}${ref.llm_used?' <span class="hint">（DeepSeek 生成）</span>':''}</div>`;
+    const dims = ref.dimensions||[];
+    if(dims.length){
+      board += `<div class="dim-grid">`;
+      dims.forEach(d=>{const sev=d.severity||'low'; board+=`<div class="dim-item sev-${sev}"><div class="dim-name">${d.dimension}<span class="sev-badge b-${sev}">${sev==='high'?'高':sev==='medium'?'中':'低'}</span></div><div class="dim-find">${d.finding||''}</div><div class="dim-act">↳ ${d.action||''}</div></div>`;});
+      board += `</div>`;
+    }
+    const adj = ref.adjustments||{}; const f = adj.filters||{}; const ftags=[];
+    if(f.max_rsi) ftags.push(`RSI≤${f.max_rsi}`);
+    if(f.max_pos_52w) ftags.push(`52周位≤${f.max_pos_52w}%`);
+    if(f.require_fund_inflow) ftags.push('要求主力净流入');
+    if(f.require_positive_fundamental) ftags.push('要求基本面为正');
+    if(f.max_per_sector) ftags.push(`单板块≤${f.max_per_sector}只`);
+    if(f.market_timing) ftags.push('启用大盘择时');
+    if(ftags.length) board += `<div class="adj-tags">`+ftags.map(t=>`<span class="adj-tag">${t}</span>`).join('')+`</div>`;
+    board += `</div>`;
+  }
+  if(r.market_note){
+    board += `<div class="card hint"><b>📉 大盘择时：</b>${r.market_note}</div>`;
+  }
+  $('tr-board').innerHTML = board;
+
+  // —— 荐股卡片 ——
+  const picks = r.picks||[];
+  if(!picks.length){ $('tr-result').innerHTML=`<div class="card hint">本期无符合约束的标的</div>`; return; }
+  const wr = r.winrate;
+  const wrTxt = wr ? ` · 当期胜率 ${(wr.win_rate*100).toFixed(0)}%（${wr.wins}/${wr.total}）` : ' · 次日未结算';
+  let html = `<div class="sec-title">🕝 尾盘荐股 Top ${picks.length}（基于 ${r.base_date} 盘中数据 · 尾盘买入 · 次日验证）${wrTxt}</div><div class="pick-grid">`;
+  picks.forEach((p,i)=>{
+    const f = p.factors||{};
+    const rsi = (f.rsi!=null)?f.rsi.toFixed(0):(p.rsi!=null?p.rsi:'—');
+    const pos = (f.pos_52w!=null)?f.pos_52w:(p.pos_52w!=null?p.pos_52w:'—');
+    const inflow = f.main_inflow_positive;
+    const mf = p.fundamentals || (f.fundamentals) || {};
+    const hs = p.hot_sector || (f.hot_sector?{sector:f.hot_sector,sector_rank:f.hot_sector_rank,week_pct:f.hot_sector_week_pct}:null);
+    let mainlineBadge='';
+    if(hs && hs.sector){
+      const wp = hs.week_pct; const wpTxt = (wp!=null)?` ${wp>=0?'+':''}${(+wp).toFixed(1)}%`:'';
+      mainlineBadge = `<span class="pick-mainline" title="近一周市场主线板块">🚀 ${hs.sector}${hs.sector_rank?` #${hs.sector_rank}`:''}${wpTxt}</span>`;
+    }
+    const tags=(p.tags||[]).filter(t=>!String(t).startsWith('主线·')).map(t=>{
+      const isFib = String(t).startsWith('回踩黄金');
+      return `<span class="pick-tag${isFib?' fib':''}">${isFib?'📐 ':''}${t}</span>`;
+    }).join('');
+    let resultBadge='';
+    if(p.is_win!=null){
+      const win=p.is_win==1;
+      resultBadge=`<span class="pick-result ${win?'down':'up'}" style="background:${win?'rgba(246,70,93,.16)':'rgba(14,203,129,.16)'};color:${win?'var(--red)':'var(--green)'}">次日 ${p.next_pct>=0?'+':''}${p.next_pct}% ${win?'✓赢':'✗输'}</span>`;
+    }
     html += `<div class="pick-card">
-      <div class="pick-head"><strong>${p.name||'?'}</strong> <span class="dim">${p.symbol}</span> <span class="tag">${p.industry||'—'}</span></div>
-      <div>入场 ¥${p.entry_price||'—'} ｜ 评分 ${score} ｜ RSI ${(p.factors||{}).rsi||'-'}</div>
-      <div class="dim">${tags}</div>
-      <div class="dim" style="margin-top:4px">${p.reason || ''}</div>
+      <div class="pick-head">
+        <div><span class="pick-rank">#${i+1}</span><span class="pick-name">${p.name||p.symbol}</span><span class="pick-code">${p.symbol}</span>${mainlineBadge}</div>
+        <div class="pick-score" title="加权评分">${p.score}</div>
+      </div>
+      <div class="pick-price-row"><span class="pick-price">¥${p.entry_price||'—'}</span><span class="hint">入场参考价</span>${resultBadge}<span class="pick-sector">🏭 ${p.industry||'—'}</span></div>
+      ${tags?`<div class="pick-tags">${tags}</div>`:''}
+      <div id="tr-spark-${i}" class="pick-spark"></div>
+      <div class="pick-stats">
+        <div><span class="k">RSI</span><span class="v">${rsi}</span></div>
+        <div><span class="k">52周位</span><span class="v">${pos}%</span></div>
+        <div><span class="k">5日动量</span><span class="v">${f.momentum_5d!=null?(f.momentum_5d>=0?'+':'')+f.momentum_5d+'%':'—'}</span></div>
+        <div><span class="k">买入信号</span><span class="v">${f.buy_signal_count??'—'}</span></div>
+        <div><span class="k">主力资金</span><span class="v ${inflow===true?'up':inflow===false?'down':''}">${inflow===true?'净流入':inflow===false?'净流出':'—'}</span></div>
+        <div><span class="k">均线</span><span class="v">${f.ma_bull?'多头':'—'}</span></div>
+      </div>
+      ${renderMultifactor(mf)}
+      <div class="pick-reason"><b>选中原因：</b>${p.reason||'-'}</div>
     </div>`;
-  }
-  html += `</div>`;
-  html += `<div class="hint" style="margin-top:10px">⚠️ 尾盘荐股使用盘中数据，今日 15:00 前可买入，次日早盘验证。回测仅供参考。</div>`;
+  });
+  html += `</div><div class="hint" style="margin-top:10px">⚠️ 尾盘荐股使用盘中数据，今日 15:00 前可买入，次日早盘验证。回测仅供参考。</div>`;
   $('tr-result').innerHTML = html;
+
+  // 迷你K线
+  picks.forEach((p,i)=>{
+    const k=p.kline_mini; if(!k||!k.candles) return;
+    setTimeout(()=>{
+      const el = $('tr-spark-'+i); if(!el) return;
+      const chart=echarts.init(el,'dark');
+      chart.setOption({backgroundColor:'transparent',
+        tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+        grid:{left:6,right:6,top:8,bottom:6},
+        xAxis:{type:'category',data:k.dates,show:false},
+        yAxis:{scale:true,show:false},
+        series:[{type:'candlestick',data:k.candles,
+          itemStyle:{color:UP,color0:DOWN,borderColor:UP,borderColor0:DOWN}}]});
+    },30);
+  });
 }
 refreshTailRecommendStatus();
 setInterval(refreshTailRecommendStatus, 60 * 1000);
