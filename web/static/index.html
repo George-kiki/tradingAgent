@@ -318,6 +318,10 @@
   .tail-score{font-size:30px;font-weight:900;color:var(--gold)}
   .tail-plan{font-size:12.5px;color:#cbd5e1;line-height:1.55;background:rgba(0,0,0,.18);border-radius:10px;padding:10px;margin-top:8px}
   .tail-chart{height:360px;background:#0e141d;border:1px solid var(--line);border-radius:12px;margin:12px 0 18px}
+  /* 历史回测 */
+  .bt-stock-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:16px}
+  .bt-stock-item{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .bt-stock-item .pick-rank{font-size:18px;font-weight:900;color:var(--gold);min-width:28px}
 </style>
 </head>
 <body>
@@ -469,6 +473,19 @@
     </div>
     <div id="rc-board"></div>
     <div id="rc-result"></div>
+    <!-- 历史回测 -->
+    <div class="row" style="border-top:1px dashed var(--line);margin-top:20px;padding-top:14px">
+      <span class="hint">📊 历史回测：</span>
+      <select id="rc-bt-days">
+        <option value="10">近10个交易日</option>
+        <option value="20">近20个交易日</option>
+        <option value="30" selected>近30个交易日</option>
+        <option value="60">近60个交易日</option>
+      </select>
+      <button onclick="doRecommendBacktest()" style="background:var(--accent)">▶ 运行回测</button>
+      <span class="hint">回填未生成批次 → 结算次日涨跌 → 聚合统计</span>
+    </div>
+    <div id="rc-bt-result"></div>
   </div>
 
   <!-- 尾盘荐股 -->
@@ -485,6 +502,19 @@
     </div>
     <div id="tr-board"></div>
     <div id="tr-result"></div>
+    <!-- 历史回测 -->
+    <div class="row" style="border-top:1px dashed var(--line);margin-top:20px;padding-top:14px">
+      <span class="hint">📊 历史回测：</span>
+      <select id="tr-bt-days">
+        <option value="10">近10个交易日</option>
+        <option value="20">近20个交易日</option>
+        <option value="30" selected>近30个交易日</option>
+        <option value="60">近60个交易日</option>
+      </select>
+      <button onclick="doTailRecommendBacktest()" style="background:var(--accent)">▶ 运行回测</button>
+      <span class="hint">入场价=当日收盘价 · 验证=次日收盘价 · 回填未生成→结算→聚合</span>
+    </div>
+    <div id="tr-bt-result"></div>
   </div>
 
   <!-- 尾盘选股 -->
@@ -1576,6 +1606,91 @@ function renderRecommend(r, isHistory){
           itemStyle:{color:UP,color0:DOWN,borderColor:UP,borderColor0:DOWN}}]});
     },30);
   });
+}
+
+// ===================== 历史回测（每日荐股 + 尾盘荐股共用） =====================
+async function doRecommendBacktest(){
+  const days = $('rc-bt-days')?.value || 30;
+  $('rc-bt-result').innerHTML = loading(`回测中：回填最近 ${days} 日 → 逐日结算 → 聚合统计，首次需下载历史K线，请稍候...`);
+  try{
+    const r = await fetch('/api/recommend/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:+days})}).then(x=>x.json());
+    if(r.error){ $('rc-bt-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    renderBacktest(r, 'rc-bt-result');
+  }catch(e){ $('rc-bt-result').innerHTML=`<div class="card down">请求超时，回测需拉取多日K线数据，请稍后重试。</div>`; }
+}
+async function doTailRecommendBacktest(){
+  const days = $('tr-bt-days')?.value || 30;
+  $('tr-bt-result').innerHTML = loading(`回测中：回填最近 ${days} 日 → 逐日结算 → 聚合统计，请稍候...`);
+  try{
+    const r = await fetch('/api/tail-recommend/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:+days})}).then(x=>x.json());
+    if(r.error){ $('tr-bt-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    renderBacktest(r, 'tr-bt-result');
+  }catch(e){ $('tr-bt-result').innerHTML=`<div class="card down">请求超时，请稍后重试。</div>`; }
+}
+function renderBacktest(r, containerId){
+  if(r.empty){ $(containerId).innerHTML='<div class="card hint">暂无历史数据，请先生成荐股记录。</div>'; return; }
+  const s=r.summary||{};
+  let html=`<div class="wr-board">
+    <div class="wr-card"><div class="big wr-ok">${(s.win_rate*100).toFixed(1)}%</div><div class="lbl">总胜率（${s.total_batches}批次·${s.total_picks}只）</div></div>
+    <div class="wr-card"><div class="big ${s.avg_return>=0?'wr-ok':'wr-bad'}">${s.avg_return>=0?'+':''}${s.avg_return}%</div><div class="lbl">平均次日收益</div></div>
+    <div class="wr-card"><div class="big wr-ok">${s.cum_return>=0?'+':''}${s.cum_return}%</div><div class="lbl">累计收益</div></div>
+    <div class="wr-card"><div class="big">${s.max_return>=0?'+':''}${s.max_return}% / ${s.min_return}%</div><div class="lbl">最佳 / 最差批次</div></div>
+  </div>`;
+  if(r.note){ html+=`<div class="card hint">📝 ${r.note}</div>`; }
+
+  // 累计收益曲线
+  const cumDiv = containerId+'-cum';
+  html += `<div id="${cumDiv}" style="height:180px;margin-bottom:12px"></div>`;
+
+  // 每日胜率柱状图
+  const barDiv = containerId+'-bar';
+  html += `<div id="${barDiv}" style="height:140px;margin-bottom:12px"></div>`;
+
+  // 个股排行
+  const top = r.top_stocks||[];
+  const worst = r.worst_stocks||[];
+  if(top.length){
+    html += `<div class="sec-title">🏆 最佳个股 TOP ${top.length}</div><div class="bt-stock-grid">`;
+    top.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--green)">+${t.avg_return}%</span> <span class="dim">${t.appearances}次·胜率${(t.win_rate*100).toFixed(0)}%</span></div>`;});
+    html+=`</div>`;
+  }
+  if(worst.length){
+    html += `<div class="sec-title">💀 最差个股 TOP ${worst.length}</div><div class="bt-stock-grid">`;
+    worst.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--red)">${t.avg_return}%</span> <span class="dim">${t.appearances}次</span></div>`;});
+    html+=`</div>`;
+  }
+  $(containerId).innerHTML = html;
+
+  // 累计曲线
+  setTimeout(()=>{
+    const cum = r.cumulative||[];
+    if(!cum.length) return;
+    const chart = echarts.init($(cumDiv),'dark');
+    chart.setOption({backgroundColor:'transparent',
+      tooltip:{trigger:'axis'}, grid:{left:50,right:20,top:10,bottom:30},
+      xAxis:{type:'category',data:cum.map(x=>x.date.substr(5)),axisLabel:{fontSize:10}},
+      yAxis:{axisLabel:{formatter:v=>v+'%'}},
+      series:[{name:'累计收益',type:'line',data:cum.map(x=>x.value),
+        lineStyle:{color:cum[cum.length-1].value>=0?UP:DOWN},
+        itemStyle:{color:cum[cum.length-1].value>=0?UP:DOWN},
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,
+          colorStops:[{offset:0,color:cum[cum.length-1].value>=0?'rgba(14,203,129,.3)':'rgba(246,70,93,.3)'},
+                      {offset:1,color:'rgba(14,203,129,0)'}]}}}]});
+  },100);
+
+  // 每日胜率柱状图
+  setTimeout(()=>{
+    const daily = r.daily||[];
+    if(!daily.length) return;
+    const chart2 = echarts.init($(barDiv),'dark');
+    chart2.setOption({backgroundColor:'transparent',
+      tooltip:{trigger:'axis'}, grid:{left:40,right:20,top:10,bottom:30},
+      xAxis:{type:'category',data:daily.map(x=>x.date.substr(5)),axisLabel:{fontSize:10}},
+      yAxis:{max:100,axisLabel:{formatter:v=>v+'%'}},
+      series:[{name:'胜率',type:'bar',data:daily.map(x=>(x.win_rate*100).toFixed(0)),
+        itemStyle:{color:params=>params.value>=70?UP:params.value>=50?'var(--gold)':DOWN},
+        barCategoryGap:'30%'}]});
+  },150);
 }
 
 // ===================== 尾盘荐股 =====================

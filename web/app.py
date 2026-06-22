@@ -543,6 +543,132 @@ def api_recommend_history(limit: int = Query(30)):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+def _compute_backtest(db, days: int = 60) -> dict:
+    """聚合历史荐股回测指标。"""
+    from data.fetcher import get_fetcher, normalize_symbol
+    dates = db.all_recommendation_dates()
+    if not dates:
+        return {"empty": True}
+
+    all_picks = []
+    batch_stats = []
+    stock_map: dict[str, dict] = {}  # symbol -> {name, appearances, returns, wins}
+
+    for d in sorted(dates)[-days:]:
+        picks = db.get_recommendations(d)
+        if not picks:
+            continue
+        results = {r["symbol"]: r for r in db.get_results(d)}
+        batch_pcts = []
+        for p in picks:
+            sym = p["symbol"]
+            r = results.get(sym)
+            nxt = r["next_pct"] if r else None
+            is_win = r["is_win"] if r else None
+            all_picks.append({"date": d, "symbol": sym, "name": p.get("name", sym),
+                              "next_pct": nxt, "is_win": is_win})
+            if nxt is not None:
+                batch_pcts.append(nxt)
+                stock_map.setdefault(sym, {"name": p.get("name", sym),
+                    "appearances": 0, "returns": [], "wins": 0})
+                stock_map[sym]["appearances"] += 1
+                stock_map[sym]["returns"].append(nxt)
+                if is_win:
+                    stock_map[sym]["wins"] += 1
+
+        if batch_pcts:
+            batch_stats.append({
+                "date": d,
+                "picks": len(picks),
+                "wins": sum(1 for p in picks if results.get(p["symbol"], {}).get("is_win")),
+                "win_rate": round(sum(1 for p in picks if results.get(p["symbol"], {}).get("is_win")) / len(picks), 4),
+                "avg_return": round(sum(batch_pcts) / len(batch_pcts), 2),
+            })
+
+    if not batch_stats:
+        return {"empty": True}
+
+    # 累计收益曲线
+    cum = 0.0
+    cum_series = []
+    for b in batch_stats:
+        cum += b["avg_return"]
+        cum_series.append({"date": b["date"], "value": round(cum, 2)})
+
+    # 个股排行
+    top_stocks = sorted(stock_map.values(), key=lambda x: sum(x["returns"]) / len(x["returns"]), reverse=True)
+    for s in top_stocks:
+        s["avg_return"] = round(sum(s["returns"]) / len(s["returns"]), 2)
+        s["win_rate"] = round(s["wins"] / s["appearances"], 4) if s["appearances"] else 0
+        del s["returns"]
+
+    return {
+        "summary": {
+            "total_batches": len(batch_stats),
+            "total_picks": len(all_picks),
+            "win_rate": round(sum(b["wins"] for b in batch_stats) / sum(b["picks"] for b in batch_stats), 4),
+            "avg_return": round(sum(b["avg_return"] for b in batch_stats) / len(batch_stats), 2) if batch_stats else 0,
+            "max_return": max(b["avg_return"] for b in batch_stats),
+            "min_return": min(b["avg_return"] for b in batch_stats),
+            "cum_return": round(cum, 2),
+        },
+        "daily": batch_stats,
+        "cumulative": cum_series,
+        "top_stocks": top_stocks[:8],
+        "worst_stocks": list(reversed(top_stocks[-8:])),
+    }
+
+
+@app.post("/api/recommend/backtest")
+def api_recommend_backtest(payload: dict = Body(...)):
+    """触发每日荐股历史回测（回填 + 结算 + 聚合统计）。"""
+    days = min(int(payload.get("days", 30)), 60)
+    from recommend.engine import RecommendEngine
+    from recommend.database import RecommendDB
+    from recommend.winrate import settle_all_pending
+    from data.fetcher import get_fetcher
+
+    try:
+        eng = RecommendEngine()
+        db = RecommendDB()
+        fetcher = get_fetcher()
+
+        # 回填未生成的历史日期
+        eng.backfill(n_days=days)
+        # 确保全部结算
+        settle_all_pending(db, fetcher)
+        # 聚合
+        result = _compute_backtest(db, days)
+        result["mode"] = "每日荐股"
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/tail-recommend/backtest")
+def api_tail_recommend_backtest(payload: dict = Body(...)):
+    """触发尾盘荐股历史回测（与每日荐股共用引擎和结算逻辑）。"""
+    days = min(int(payload.get("days", 30)), 60)
+    from recommend.engine import RecommendEngine
+    from recommend.database import RecommendDB
+    from recommend.winrate import settle_all_pending
+    from data.fetcher import get_fetcher
+
+    try:
+        eng = RecommendEngine()
+        db = RecommendDB()
+        fetcher = get_fetcher()
+
+        eng.backfill(n_days=days)
+        settle_all_pending(db, fetcher)
+        result = _compute_backtest(db, days)
+        result["mode"] = "尾盘荐股"
+        result["note"] = "尾盘荐股与每日荐股共用引擎，入场价为当日收盘价、验证为次日收盘价。实际尾盘操作可在14:30后参照入场价买入。"
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 # ---------------- 尾盘荐股 ----------------
 
 
