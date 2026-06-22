@@ -74,9 +74,8 @@ def _tencent_get(url: str, params: dict = None) -> Optional[requests.Response]:
     return None
 
 
-def _tencent_market_snapshot(codes: list[str]) -> Optional[str]:
-    """腾讯实时行情快照（批量）。返回原始文本。"""
-    # 腾讯代码格式：sh600519, sz000858
+def _tencent_market_snapshot(codes: list[str]) -> Optional[list[dict]]:
+    """腾讯实时行情快照（批量）。返回 [{代码,名称,...}] 列表。"""
     tcodes = []
     for c in codes:
         c = str(c).strip().zfill(6)
@@ -90,32 +89,27 @@ def _tencent_market_snapshot(codes: list[str]) -> Optional[str]:
         "https://qt.gtimg.cn/",
         params={"q": ",".join(tcodes), "fmt": "json"}
     )
-    if resp:
-        return resp.text
-    return None
+    if not resp:
+        return None
+    return _parse_tencent_json(resp.text)
 
 
 def _tencent_all_market() -> Optional[pd.DataFrame]:
     """腾讯全市场行情快照（分页批量拉取沪深主板）。"""
-    # 腾讯按代码段分页拉取
     all_rows = []
     prefixes = [
         ("sh", "600"), ("sh", "601"), ("sh", "603"), ("sh", "605"),
         ("sz", "000"), ("sz", "001"), ("sz", "002"), ("sz", "003"),
     ]
     for market, prefix in prefixes:
-        # 逐个代码段拉取（每次约100只）
         codes = [f"{market}{prefix}{i:03d}" for i in range(1000)]
-        # 分批拉取，每批50只
         for batch_start in range(0, len(codes), 50):
             batch = codes[batch_start:batch_start + 50]
-            raw = _tencent_market_snapshot(batch)
-            if not raw:
-                continue
-            rows = _parse_tencent_snapshot(raw)
-            all_rows.extend(rows)
-            time.sleep(0.1)  # 温和限流
-        if len(all_rows) >= 4000:  # 沪深主板约4000只，够了就停
+            rows = _tencent_market_snapshot(batch)  # 现在直接返回列表
+            if rows:
+                all_rows.extend(rows)
+            time.sleep(0.1)
+        if len(all_rows) >= 4000:
             break
     if not all_rows:
         return None
@@ -125,17 +119,59 @@ def _tencent_all_market() -> Optional[pd.DataFrame]:
     return df
 
 
-def _parse_tencent_snapshot(raw: str) -> list[dict]:
-    """解析腾讯行情快照文本 → [{代码,名称,最新价,涨跌幅,...}]。"""
+def _parse_tencent_json(raw: str) -> list[dict]:
+    """解析腾讯 JSON 格式快照 → [{代码,名称,最新价,涨跌幅,...}]。
+
+    腾讯 API 返回: {"sh600519":["1","name","600519","1241.41",...]}
+    字段索引: 1=名称, 3=最新价, 32=涨跌幅, 38=换手率, 39=PE, 45=总市值(亿), 46=PB
+    """
     rows = []
-    # 腾讯返回格式每行: v_sh600519="1~贵州茅台~2000.00~1.23~..."
-    # 字段索引参考: 1=名称,3=最新价,32=涨跌幅,45=市盈率,46=市净率,38=换手率,45=总市值
-    for line in raw.strip().split("\n"):
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return rows
+    for code_key, vals in data.items():
+        if not isinstance(vals, list) or len(vals) < 40:
+            continue
+        code = re.sub(r'^[shz]+', '', code_key).zfill(6)
+        try:
+            amount_val = _safe_float(vals[37])
+            amount = amount_val * 10000 if amount_val else None  # 万→元
+            mv_val = _safe_float(vals[45])
+            rows.append({
+                "代码": code,
+                "名称": str(vals[1]) if len(vals) > 1 else code,
+                "最新价": _safe_float(vals[3]) if len(vals) > 3 else None,
+                "涨跌幅": _safe_float(vals[32]) if len(vals) > 32 else None,
+                "成交额": amount,
+                "换手率": _safe_float(vals[38]) if len(vals) > 38 else None,
+                "市盈率-动态": _safe_float(vals[39]) if len(vals) > 39 else None,
+                "量比": _safe_float(vals[49]) if len(vals) > 49 else None,
+                "总市值": mv_val * 1e8 if mv_val else None,  # 亿→元
+                "市净率": _safe_float(vals[46]) if len(vals) > 46 else None,
+            })
+        except (IndexError, ValueError):
+            continue
+    return rows
+
+
+def _parse_tencent_snapshot(raw: str) -> list[dict]:
+    """解析腾讯行情快照文本 → [{代码,名称,最新价,涨跌幅,...}]。
+
+    兼容两种格式:
+    - 旧: v_sh600519="1~茅台~2000.00~1.23~..."
+    - 新: {"sh600519":["1","茅台",...]}
+    """
+    raw_strip = raw.strip()
+    if raw_strip.startswith("{"):
+        return _parse_tencent_json(raw_strip)
+    # 旧格式
+    rows = []
+    for line in raw_strip.split("\n"):
         m = re.search(r'v_(s[hz]\d+)="(.+)"', line)
         if not m:
             continue
-        code_raw = m.group(1)
-        code = re.sub(r'^[shz]+', '', code_raw).zfill(6)
+        code = re.sub(r'^[shz]+', '', m.group(1)).zfill(6)
         fields = m.group(2).split("~")
         if len(fields) < 40:
             continue
@@ -145,11 +181,11 @@ def _parse_tencent_snapshot(raw: str) -> list[dict]:
                 "名称": fields[1],
                 "最新价": _safe_float(fields[3]),
                 "涨跌幅": _safe_float(fields[32]),
-                "成交额": _safe_float(fields[37]) * 10000 if _safe_float(fields[37]) else None,  # 万→元
+                "成交额": _safe_float(fields[37]) * 10000 if _safe_float(fields[37]) else None,
                 "换手率": _safe_float(fields[38]),
                 "市盈率-动态": _safe_float(fields[39]),
                 "量比": _safe_float(fields[49]) if len(fields) > 49 else None,
-                "总市值": _safe_float(fields[45]) * 1e8 if _safe_float(fields[45]) else None,  # 亿→元
+                "总市值": _safe_float(fields[45]) * 1e8 if _safe_float(fields[45]) else None,
                 "市净率": _safe_float(fields[46]),
             })
         except (IndexError, ValueError):
@@ -161,10 +197,7 @@ def _tencent_single_snapshot(symbol: str) -> Optional[dict]:
     """单只股票腾讯快照。"""
     symbol = str(symbol).strip().zfill(6)
     market = "sh" if symbol.startswith("6") else "sz"
-    raw = _tencent_market_snapshot([symbol])
-    if not raw:
-        return None
-    rows = _parse_tencent_snapshot(raw)
+    rows = _tencent_market_snapshot([symbol])  # 现在直接返回列表
     return rows[0] if rows else None
 
 
@@ -394,10 +427,9 @@ class ASDataSource:
             "sh000300": "沪深300",
             "sh000688": "科创50",
         }
-        raw = _tencent_market_snapshot(list(index_codes.keys()))
-        if not raw:
+        rows = _tencent_market_snapshot(list(index_codes.keys()))  # 直接返回列表
+        if not rows:
             return []
-        rows = _parse_tencent_snapshot(raw)
         out = []
         for r in rows:
             name = index_codes.get(f"sh{r['代码']}", index_codes.get(f"sz{r['代码']}", ""))
