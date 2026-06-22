@@ -1,6 +1,7 @@
-# ===== 核心数据 =====
-akshare>=1.12.0          # A股免费数据源（行情/K线/资金流/基本面/新闻）
-tushare>=1.2.89          # 可选增强数据源：配置 token 后自动启用，否则降级 AkShare
+# ===== 核心数据（三级降级：Tushare → A-Stock直连 → AkShare）=====
+akshare>=1.12.0          # A股免费数据源（兜底，行情/K线/资金流/基本面/新闻）
+tushare>=1.2.89          # 可选增强数据源：配置 token 后自动启用
+mootdx>=0.11.0           # A-Stock直连：通达信K线（TCP 7709，不封IP）
 pandas>=2.0.0
 numpy>=1.24.0
 

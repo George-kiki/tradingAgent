@@ -1,4 +1,10 @@
-"""A股数据采集器：基于免费的 AkShare。
+"""A股数据采集器：多源架构。
+
+数据源优先级（不封IP优先）：
+1. A-Stock直连（通达信mootdx + 腾讯财经，不封IP，主力源）
+2. Tushare（需Token，数据最全，备用）
+3. AkShare（免费兜底，东财/新浪封装）
+4. 新浪（最底层兜底）
 
 封装常用数据接口并做：
 1. 中文列名 -> 英文标准列名
@@ -72,7 +78,7 @@ def normalize_symbol(symbol: str) -> str:
 class DataFetcher:
     """统一数据访问入口。
 
-    数据源优先级：配置了 TUSHARE_TOKEN 时优先用 Tushare，失败自动降级到免费的 AkShare。
+    数据源优先级：A-Stock直连（不封IP）→ Tushare（Token）→ AkShare → 新浪。
     """
 
     def __init__(self):
@@ -81,12 +87,24 @@ class DataFetcher:
             self._ts = get_tushare()
         except Exception:
             self._ts = None
+        try:
+            from data.astock_source import get_as_source
+            self._as = get_as_source()
+        except Exception:
+            self._as = None
         self._last_market_spot_source = ""
         self._last_kline_source = ""
 
     @property
     def active_source(self) -> str:
-        return "Tushare(增强)+AkShare" if (self._ts and self._ts.ready) else "AkShare(免费)"
+        parts = []
+        if self._as:
+            parts.append("A-Stock直连")
+        if self._ts and self._ts.ready:
+            parts.append("Tushare")
+        if ak is not None:
+            parts.append("AkShare")
+        return "+".join(parts) if parts else "无可用源"
 
     @property
     def last_market_spot_source(self) -> str:
@@ -111,7 +129,17 @@ class DataFetcher:
         key = f"kline:v2:{symbol}:{period}:{adjust}:{start}:{end}"
 
         def _fetch():
-            # 主源1：Tushare 日线（优先，稳定）
+            # 主源1：A-Stock直连（通达信mootdx > 腾讯，不封IP）
+            if self._as and period == "daily":
+                try:
+                    df_as = self._as.get_kline(symbol, days=days)
+                    if df_as is not None and not df_as.empty:
+                        df_as.attrs["source"] = df_as.attrs.get("source", "A-Stock直连K线")
+                        return df_as
+                except Exception:
+                    pass
+
+            # 主源2：Tushare 日线（备用）
             if self._ts and self._ts.ready and period == "daily":
                 try:
                     df_ts = self._ts.get_kline(symbol, days=days, adjust=adjust)
@@ -121,7 +149,7 @@ class DataFetcher:
                 except Exception:
                     pass
 
-            # 主源2：东方财富 K 线（Tushare不可用时兜底）
+            # 主源3：东方财富 K 线（兜底）
             if ak is not None:
                 try:
                     df_em = _retry(lambda: ak.stock_zh_a_hist(
@@ -169,7 +197,7 @@ class DataFetcher:
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         for c in ["open", "close", "high", "low", "volume", "amount", "pct_change", "turnover"]:
             if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
+                df[c] = df[c].astype(float)
         df = df.dropna(subset=["close"]).reset_index(drop=True)
         out = df.tail(days).reset_index(drop=True)
         out.attrs["source"] = self._last_kline_source
@@ -178,16 +206,26 @@ class DataFetcher:
     # ---------- 个股基本信息 ----------
     def get_basic_info(self, symbol: str) -> dict:
         """个股基本信息：名称、行业、总市值、流通市值等。"""
-        _require_ak()
         symbol = normalize_symbol(symbol)
         key = f"basic:{symbol}"
 
         def _fetch():
-            try:
-                df = ak.stock_individual_info_em(symbol=symbol)
-                return dict(zip(df["item"], df["value"]))
-            except Exception:
-                return {}
+            # 优先腾讯（不封IP，快速）
+            if self._as:
+                try:
+                    info = self._as.get_basic_info(symbol)
+                    if info:
+                        return info
+                except Exception:
+                    pass
+            # 回退东财
+            if ak is not None:
+                try:
+                    df = ak.stock_individual_info_em(symbol=symbol)
+                    return dict(zip(df["item"], df["value"]))
+                except Exception:
+                    return {}
+            return {}
 
         return cached_call(key, _fetch, ttl=86400) or {}
 
@@ -213,6 +251,14 @@ class DataFetcher:
 
     def get_name(self, symbol: str) -> str:
         symbol = normalize_symbol(symbol)
+        # 优先腾讯快照（最快，不封IP）
+        if self._as:
+            try:
+                nm = self._as.get_name(symbol)
+                if nm and nm != symbol:
+                    return nm
+            except Exception:
+                pass
         info = self.get_basic_info(symbol)
         name = info.get("股票简称") or info.get("简称")
         if name:
@@ -378,9 +424,17 @@ class DataFetcher:
         return []
 
     def get_fund_flow(self, symbol: str) -> dict:
-        """个股近期资金流向（主力净流入等）。优先 Tushare，失败降级东财。"""
+        """个股近期资金流向（主力净流入等）。A-Stock直连 → Tushare → AkShare。"""
         symbol = normalize_symbol(symbol)
-        # 优先 Tushare（规避东财网页接口限流导致的资金流缺失）
+        # 优先 A-Stock直连东财资金流
+        if self._as:
+            try:
+                as_out = self._as.get_fund_flow(symbol)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        # 备选：Tushare
         if self._ts and self._ts.ready:
             try:
                 ts_out = self._ts.get_fund_flow(symbol)
@@ -388,7 +442,8 @@ class DataFetcher:
                     return ts_out
             except Exception:
                 pass
-        _require_ak()
+        if ak is None:
+            return {}
         market = "sh" if symbol.startswith("6") else "sz"
         key = f"fund:{symbol}"
 
@@ -406,9 +461,18 @@ class DataFetcher:
 
     # ---------- 北向资金（沪深股通持股）----------
     def get_north_hold(self, symbol: str) -> dict:
-        """个股北向（陆股通）持股：最新持股占比/市值 + 近5日趋势。容错降级。"""
-        _require_ak()
+        """个股北向（陆股通）持股。优先 A-Stock直连，失败降级AkShare。"""
         symbol = normalize_symbol(symbol)
+        # 优先 A-Stock直连
+        if self._as:
+            try:
+                as_out = self._as.get_north_hold(symbol)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        if ak is None:
+            return {}
         key = f"north:{symbol}"
 
         def _fetch():
@@ -451,8 +515,17 @@ class DataFetcher:
 
     # ---------- 龙虎榜（近一月统计，一次缓存全市场）----------
     def get_lhb_map(self, period: str = "近一月") -> dict:
-        """近一月龙虎榜统计 {代码: {次数, 净买额, 最近上榜日}}，一次调用缓存。"""
-        _require_ak()
+        """近一月龙虎榜统计。优先 A-Stock直连，失败降级AkShare。"""
+        # 优先 A-Stock直连东财龙虎榜
+        if self._as:
+            try:
+                as_out = self._as.get_lhb_map()
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        if ak is None:
+            return {}
         key = f"lhb:{period}"
 
         def _fetch():
@@ -482,9 +555,18 @@ class DataFetcher:
 
     # ---------- 新闻舆情 ----------
     def get_news(self, symbol: str, limit: int = 8) -> list[dict]:
-        """个股相关新闻标题列表。"""
-        _require_ak()
+        """个股相关新闻标题列表。优先 A-Stock直连，失败降级AkShare。"""
         symbol = normalize_symbol(symbol)
+        # 优先 A-Stock直连东财新闻
+        if self._as:
+            try:
+                as_out = self._as.get_news(symbol, limit=limit)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        if ak is None:
+            return []
         key = f"news:{symbol}:{limit}"
 
         def _fetch():
@@ -626,63 +708,49 @@ class DataFetcher:
     def get_market_spot(self) -> pd.DataFrame:
         """A股全市场实时快照（涨跌幅、市值、换手、量比等）。
 
-        数据源优先级（根据时段智能选择）：
-        - 盘中（9:30-15:00）：东财直连实时行情（实时性最好）
-        - 收盘后：Tushare 日级快照（稳定、完整）
-        - 兜底：AkShare封装东财 → 新浪
+        数据源优先级：A-Stock直连(腾讯/东财) → Tushare → AkShare → 新浪。
         """
         import datetime as _dt
         _now = _dt.datetime.now()
         _is_trading_hours = _now.weekday() < 5 and _dt.time(9, 30) <= _now.time() <= _dt.time(15, 5)
 
-        _require_ak()
         key = "spot:all:v3"
 
         def _fetch():
-            # 盘中优先东财实时行情，收盘后优先 Tushare 日级快照
-            if _is_trading_hours:
-                # 盘中：东财实时行情
-                df = self._spot_em_direct()
-                if df is not None and not df.empty:
-                    return df
-
-                # 东财不可用时，尝试 AkShare 东财
-                try:
-                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
+            # 主源1：A-Stock直连
+            if self._as:
+                # 盘中：东财直连实时行情（字段全、实时性好）
+                if _is_trading_hours:
+                    df = self._spot_em_direct()
                     if df is not None and not df.empty:
-                        df.attrs["source"] = "东方财富(AkShare封装)实时快照"
+                        return df
+                # 腾讯财经快照（不封IP，盘中盘后都可用）
+                try:
+                    df_tencent = self._as.get_market_spot()
+                    if df_tencent is not None and not df_tencent.empty:
+                        return df_tencent
+                except Exception:
+                    pass
+
+            # 主源2：Tushare 日级快照
+            if self._ts and self._ts.ready:
+                try:
+                    df = self._ts.get_market_spot_all()
+                    if df is not None and not df.empty:
+                        df.attrs["source"] = "Tushare日级快照"
+                        print(f"[快照] Tushare 全市场快照成功，{len(df)} 只")
                         return df
                 except Exception:
                     pass
 
-                # 兜底：Tushare（虽然盘中数据可能不完整）
-                if self._ts and self._ts.ready:
-                    try:
-                        df = self._ts.get_market_spot_all()
-                        if df is not None and not df.empty:
-                            df.attrs["source"] = "Tushare日级快照兜底"
-                            print(f"[快照] 盘中东财不可用，切换 Tushare 全市场快照，{len(df)} 只")
-                            return df
-                    except Exception:
-                        pass
-            else:
-                # 收盘后：Tushare 日级快照（稳定、完整）
-                if self._ts and self._ts.ready:
-                    try:
-                        df = self._ts.get_market_spot_all()
-                        if df is not None and not df.empty:
-                            df.attrs["source"] = "Tushare日级快照"
-                            print(f"[快照] Tushare 全市场快照成功，{len(df)} 只")
-                            return df
-                    except Exception:
-                        pass
-
-                # Tushare 不可用时，尝试东财
+            # 主源3：东财直连（A-Stock/Tushare不可用）
+            if not _is_trading_hours:
                 df = self._spot_em_direct()
                 if df is not None and not df.empty:
                     return df
 
-                # 兜底：AkShare 封装东财
+            # 兜底：AkShare 封装东财
+            if ak is not None:
                 try:
                     df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
                     if df is not None and not df.empty:
@@ -691,20 +759,21 @@ class DataFetcher:
                 except Exception:
                     pass
 
-            # 最终兜底：新浪（无量比/换手/市值）
-            print("[快照] 东财/Tushare 均不可用，切换新浪备用源（量比/换手/市值将降级）...")
-            try:
-                s = _retry(lambda: ak.stock_zh_a_spot(), retries=2)
-                if s is not None and not s.empty:
-                    s = s.copy()
-                    code_col = next((c for c in s.columns if c in ("代码", "symbol", "code")), None)
-                    if code_col:
-                        s[code_col] = s[code_col].astype(str).str.replace(
-                            r"^(sh|sz|bj)", "", regex=True)
-                    s.attrs["source"] = "新浪实时快照兜底"
-                    return s
-            except Exception:
-                pass
+            # 最终兜底：新浪
+            if ak is not None:
+                print("[快照] 所有源不可用，切换新浪备用源（量比/换手/市值将降级）...")
+                try:
+                    s = _retry(lambda: ak.stock_zh_a_spot(), retries=2)
+                    if s is not None and not s.empty:
+                        s = s.copy()
+                        code_col = next((c for c in s.columns if c in ("代码", "symbol", "code")), None)
+                        if code_col:
+                            s[code_col] = s[code_col].astype(str).str.replace(
+                                r"^(sh|sz|bj)", "", regex=True)
+                        s.attrs["source"] = "新浪实时快照兜底"
+                        return s
+                except Exception:
+                    pass
             return None
 
         df = cached_call(key, _fetch, ttl=600)
@@ -737,7 +806,16 @@ class DataFetcher:
 
     # ---------- 板块/热点榜 ----------
     def get_hot_sectors(self, limit: int = 10) -> list[dict]:
-        """行业板块涨幅榜（热点）。优先 Tushare（同花顺），失败降级东财。"""
+        """行业板块涨幅榜（热点）。A-Stock直连 → Tushare → AkShare → 自聚合。"""
+        # 优先 A-Stock直连（内部已有东财→自聚合兜底）
+        if self._as:
+            try:
+                as_out = self._as.get_hot_sectors(limit=limit)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        # 备选：Tushare（同花顺板块）
         if self._ts and self._ts.ready:
             try:
                 ts_out = self._ts.get_hot_sectors(limit=limit)
@@ -745,44 +823,59 @@ class DataFetcher:
                     return ts_out
             except Exception:
                 pass
-        _require_ak()
-        key = f"sectors:{limit}"
+        # 备选：AkShare 东财封装
+        if ak is not None:
+            key = f"sectors:{limit}"
+            def _fetch():
+                try:
+                    df = _retry(lambda: ak.stock_board_industry_name_em(), retries=3)
+                    if df is None or df.empty:
+                        return None
+                    pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
+                    name_col = next((c for c in df.columns if "板块名称" in c or "名称" in c), None)
+                    if not pct_col or not name_col:
+                        return None
+                    df = df.sort_values(pct_col, ascending=False).head(limit)
+                    out = []
+                    lead_col = next((c for c in df.columns if "领涨" in c), None)
+                    for _, row in df.iterrows():
+                        out.append({
+                            "name": str(row[name_col]),
+                            "pct": round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2),
+                            "leader": str(row[lead_col]) if lead_col else "",
+                        })
+                    return out
+                except Exception:
+                    return None
+            ak_out = cached_call(key, _fetch, ttl=1800)
+            if ak_out:
+                return ak_out
 
-        def _fetch():
+        # 最终兜底：全市场快照自聚合（绕过所有东财依赖）
+        if self._as:
             try:
-                df = _retry(lambda: ak.stock_board_industry_name_em(), retries=3)
-                if df is None or df.empty:
-                    return []
-                pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
-                name_col = next((c for c in df.columns if "板块名称" in c or "名称" in c), None)
-                if not pct_col or not name_col:
-                    return []
-                df = df.sort_values(pct_col, ascending=False).head(limit)
-                out = []
-                lead_col = next((c for c in df.columns if "领涨" in c), None)
-                for _, row in df.iterrows():
-                    out.append({
-                        "name": str(row[name_col]),
-                        "pct": round(float(pd.to_numeric(row[pct_col], errors="coerce") or 0), 2),
-                        "leader": str(row[lead_col]) if lead_col else "",
-                    })
-                return out
+                as_out = self._as.get_hot_sectors_from_snapshot(limit=limit)
+                if as_out:
+                    return as_out
             except Exception:
-                return []
-
-        return cached_call(key, _fetch, ttl=1800) or []
+                pass
+        return []
 
     # ---------- 近一周板块热度榜（识别市场主线）----------
     def get_hot_sectors_week(self, top: int = 12, days: int = 5) -> list[dict]:
-        """近一周（默认5个交易日）板块热度榜，用于识别**资金主线/板块轮动趋势**。
+        """近一周（默认5个交易日）板块热度榜。
 
-        与单日涨幅榜不同，这里按多日累计涨幅排序，更能反映持续的市场主线（如科技主导期
-        半导体/元件板块连续走强）。综合：行业板块 + 概念板块（半导体、元件、AI 等概念常在
-        概念板块）。返回每个板块的近一周累计涨幅、当日涨幅、领涨股、板块类型。
-
-        强缓存（2小时）+ 容错：优先 Tushare（同花顺板块），东财限流时新浪兜底。
+        数据源优先级：A-Stock直连 → Tushare → AkShare → 兜底。
         """
-        # 优先 Tushare（同花顺行业+概念，规避东财网页接口限流导致的环境差异）
+        # 优先 A-Stock直连东财板块热度
+        if self._as:
+            try:
+                as_out = self._as.get_hot_sectors_week(top=top)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        # 备选：Tushare（同花顺行业+概念）
         if self._ts and self._ts.ready:
             try:
                 ts_out = self._ts.get_hot_sectors_week(top=top)
@@ -790,7 +883,8 @@ class DataFetcher:
                     return ts_out
             except Exception:
                 pass
-        _require_ak()
+        if ak is None:
+            return []
         key = f"hot_sectors_week:{top}:{days}"
 
         def _name_pct_list(list_caller, hist_caller, board_type: str) -> list[dict]:
@@ -922,10 +1016,18 @@ class DataFetcher:
     def get_board_cons(self, board_name: str, board_type: str = "行业") -> list[dict]:
         """获取某板块的成分股 [{代码,名称,涨跌幅,总市值}]。
 
-        board_type: '行业' 用 stock_board_industry_cons_em；'概念' 用 stock_board_concept_cons_em。
-        强缓存（6小时）+ 容错：优先 Tushare（同花顺成分股），失败降级东财。
+        board_type: '行业' | '概念'。
+        降级：A-Stock直连 → Tushare → AkShare。
         """
-        # 优先 Tushare（同花顺成分股，规避东财限流）
+        # 优先 A-Stock直连东财板块
+        if self._as:
+            try:
+                as_out = self._as.get_board_cons(board_name, board_type)
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        # 备选：Tushare（同花顺成分股）
         if self._ts and self._ts.ready:
             try:
                 ts_out = self._ts.get_board_cons(board_name, board_type)
@@ -933,7 +1035,8 @@ class DataFetcher:
                     return ts_out
             except Exception:
                 pass
-        _require_ak()
+        if ak is None:
+            return []
         key = f"board_cons:{board_type}:{board_name}"
 
         def _fetch():
@@ -966,11 +1069,18 @@ class DataFetcher:
     def get_index_spot(self) -> list[dict]:
         """主要指数实时行情（上证/深成/创业板/沪深300/科创50）。
 
-        数据源优先级：① 东财(stock_zh_index_spot_em) ② 新浪(stock_zh_index_spot_sina)。
-        含点位合理性校验：东财限流/脏数据（点位明显异常）时自动切换新浪源，避免出现
-        “上证3324”这类与实盘对不上的错误点位。
+        数据源优先级：① 腾讯（不封IP） ② 东财 ③ 新浪。
         """
-        _require_ak()
+        # 优先腾讯（不封IP，速度快）
+        if self._as:
+            try:
+                as_out = self._as.get_index_spot()
+                if as_out:
+                    return as_out
+            except Exception:
+                pass
+        if ak is None:
+            return []
         wanted = {"上证指数", "深证成指", "创业板指", "沪深300", "科创50"}
         # 各指数点位合理下限（低于此值判为脏数据/错列）
         _floor = {"上证指数": 2500, "深证成指": 7000, "创业板指": 1500,
@@ -1035,21 +1145,33 @@ class DataFetcher:
 
     # ---------- 大盘指数 ----------
     def get_index_kline(self, index_code: str = "sh000001", days: int = 120) -> pd.DataFrame:
-        """大盘指数日线（默认上证指数）。"""
-        _require_ak()
+        """大盘指数日线（默认上证指数）。优先腾讯，失败降级AkShare。"""
         key = f"index:{index_code}:{days}"
 
         def _fetch():
-            try:
-                df = ak.stock_zh_index_daily(symbol=index_code)
-                return df
-            except Exception:
-                return pd.DataFrame()
+            # 优先腾讯（不封IP）
+            if self._as:
+                try:
+                    df_as = self._as.get_index_kline(index_code, days=days)
+                    if df_as is not None and not df_as.empty:
+                        return df_as
+                except Exception:
+                    pass
+            # 回退AkShare
+            if ak is not None:
+                try:
+                    df = ak.stock_zh_index_daily(symbol=index_code)
+                    return df
+                except Exception:
+                    return pd.DataFrame()
+            return pd.DataFrame()
 
         df = cached_call(key, _fetch, ttl=3600)
         if df is None or df.empty:
             return pd.DataFrame()
-        df = df.rename(columns={"date": "date"})
+        if "date" not in df.columns:
+            return pd.DataFrame()
+        df = df.rename(columns={c: c for c in df.columns})
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         return df.tail(days).reset_index(drop=True)
 
