@@ -1603,12 +1603,14 @@ function renderTailRecommendStatus(st){
 }
 async function doTailRecommend(){
   const btn = $('tr-run');
-  if(btn && btn.disabled){ $('tr-result').innerHTML=`<div class="card hint">${btn.title||'当前不在尾盘荐股窗口'}</div>`; return; }
+  const forceMode = btn && btn.disabled;  // 非窗口期强制生成
   if(btn) btn.disabled = true;
   const count = $('tr-count')?.value || 5;
+  const q = new URLSearchParams({count});
+  if(forceMode) q.set('force', '1');
   $('tr-result').innerHTML = loading('正在生成尾盘荐股：结算→反思→10策略共识→8维基本面→选股，请稍候...');
   try{
-    const r = await api('/api/tail-recommend?'+new URLSearchParams({count}));
+    const r = await api('/api/tail-recommend?'+q.toString());
     if(r.error){ $('tr-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailRecommendStatus(); if(btn) btn.disabled = false; return; }
     renderTailRecommend(r);
   }catch(e){

@@ -582,22 +582,29 @@ def api_tail_recommend_status():
 
 @app.get("/api/tail-recommend")
 def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
-    """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。"""
+    """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。
+
+    首次生成较慢（需结算历史+动态池+评分+富化），落库后下次秒开。
+    force=True 可跳过时间门控，force 模式下不走缓存直接重算。
+    """
     status = _tail_recommend_status()
     if not status["can_regenerate"] and not force:
         return JSONResponse({"error": status["reason"], **status}, status_code=403)
 
     from recommend.engine import RecommendEngine
+    from recommend.database import RecommendDB
     try:
-        if not force:
-            from recommend.database import RecommendDB
-            db = RecommendDB()
-            latest = db.latest_recommendation_date()
-            if latest == dt.date.today().strftime("%Y-%m-%d") and db.get_recommendations(latest):
-                res = _recommend_view(db, latest)
-                res["cached"] = True
-                return JSONResponse(res)
+        db = RecommendDB()
+        today_str = dt.date.today().strftime("%Y-%m-%d")
 
+        # 今天已生成过且非强制重算 → 直接返回缓存（秒开）
+        if not force and db.latest_recommendation_date() == today_str and db.get_recommendations(today_str):
+            res = _recommend_view(db, today_str)
+            res["cached"] = True
+            res["tailpick_mode"] = True
+            return JSONResponse(res)
+
+        # 首次生成：复用每日荐股的缓存逻辑，避免重复重算
         eng = RecommendEngine()
         res = eng.run(count=count)
         if res.get("error"):
