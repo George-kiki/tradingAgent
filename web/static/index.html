@@ -326,6 +326,9 @@
   .bt-trade-table th{background:var(--panel2);padding:8px 10px;text-align:left;color:var(--sub);border-bottom:2px solid var(--line);white-space:nowrap}
   .bt-trade-table td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.05);white-space:nowrap}
   .bt-trade-table tr:hover td{background:rgba(59,130,246,.08)}
+  .bt-day-header:hover{filter:brightness(1.3)}
+  .bt-toggle-all{background:rgba(59,130,246,.2);border:1px solid var(--line);color:var(--accent);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:12px}
+  .bt-toggle-all:hover{background:rgba(59,130,246,.35)}
 </style>
 </head>
 <body>
@@ -1633,6 +1636,27 @@ async function doTailRecommendBacktest(){
     renderBacktest(r, 'tr-bt-result');
   }catch(e){ $('tr-bt-result').innerHTML=`<div class="card down">请求失败，请确认服务已启动且已有荐股记录。</div>`; }
 }
+// 展开/收起某一天
+function toggleDay(dayId){
+  const body = $(dayId);
+  const arrow = $(dayId+'-arrow');
+  if(!body) return;
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  if(arrow) arrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+}
+// 展开/收起全部天
+function toggleAllDays(btn, containerId){
+  const panel = $(containerId);
+  if(!panel) return;
+  const bodies = panel.querySelectorAll('.bt-day-body');
+  const arrows = panel.querySelectorAll('.bt-day-arrow');
+  const allExpanded = btn.textContent === '收起全部';
+  const show = !allExpanded;
+  bodies.forEach(b=>{ b.style.display = show ? 'block' : 'none'; });
+  arrows.forEach(a=>{ a.style.transform = show ? 'rotate(90deg)' : 'rotate(0deg)'; });
+  btn.textContent = show ? '收起全部' : '展开全部';
+}
 function renderBacktest(r, containerId){
   if(r.empty){ $(containerId).innerHTML='<div class="card hint">暂无历史数据，请先生成荐股记录。</div>'; return; }
   const s=r.summary||{};
@@ -1657,42 +1681,45 @@ function renderBacktest(r, containerId){
   const worst = r.worst_stocks||[];
   if(top.length){
     html += `<div class="sec-title">🏆 最佳个股 TOP ${top.length}</div><div class="bt-stock-grid">`;
-    top.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--green)">+${t.avg_return}%</span> <span class="dim">${t.appearances}次·胜率${(t.win_rate*100).toFixed(0)}%</span></div>`;});
+    top.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}<span class="dim">${t.symbol||''}</span> <span style="color:var(--green)">+${t.avg_return}%</span> <span class="dim">${t.appearances}次·胜率${(t.win_rate*100).toFixed(0)}%</span></div>`;});
     html+=`</div>`;
   }
   if(worst.length){
     html += `<div class="sec-title">💀 最差个股 TOP ${worst.length}</div><div class="bt-stock-grid">`;
-    worst.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--red)">${t.avg_return}%</span> <span class="dim">${t.appearances}次</span></div>`;});
+    worst.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}<span class="dim">${t.symbol||''}</span> <span style="color:var(--red)">${t.avg_return}%</span> <span class="dim">${t.appearances}次</span></div>`;});
     html+=`</div>`;
   }
-  // 交易明细（按天分组）
+  // 交易明细（按天分组，可展开/收起）
   const trades = r.trades||[];
   if(trades.length){
-    // 按日期分组
     const byDate = {};
     trades.forEach(t=>{ byDate[t.date] = byDate[t.date] || []; byDate[t.date].push(t); });
     const sortedDates = Object.keys(byDate).sort();
 
-    html += `<div class="sec-title">📋 尾盘交易明细 · 按日展示（买≈14:40尾盘价 · 次日早盘趋势判断 · 高开持收盘/低开开盘卖/平开收盘）</div>`;
-    sortedDates.forEach(date=>{
+    html += `<div class="sec-title">📋 尾盘交易明细 · 按日展示（买≈14:40尾盘价 · 次日早盘趋势判断 · 高开持收盘/低开开盘卖/平开收盘）<button class="bt-toggle-all" onclick="toggleAllDays(this,'${containerId}')">展开全部</button></div>`;
+    sortedDates.forEach((date, di)=>{
       const dayTrades = byDate[date];
       const dayWins = dayTrades.filter(t=>t.is_win).length;
       const dayTotal = dayTrades.length;
       const dayAvg = (dayTrades.reduce((s,t)=>s+(t.profit_pct||0),0) / dayTotal).toFixed(2);
+      const dayId = containerId+'-day-'+di;
 
-      html += `<div class="bt-day-block" style="margin-bottom:16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden">
-        <div style="background:rgba(59,130,246,.12);padding:10px 14px;display:flex;align-items:center;gap:16px">
+      html += `<div class="bt-day-block" style="margin-bottom:12px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden">
+        <div class="bt-day-header" onclick="toggleDay('${dayId}')" style="background:rgba(59,130,246,.12);padding:10px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none">
+          <span class="bt-day-arrow" id="${dayId}-arrow" style="font-size:12px;transition:transform .2s">▶</span>
           <span style="font-size:15px;font-weight:700">📅 ${date}</span>
           <span class="hint">${dayTotal}只</span>
           <span style="color:${dayAvg>=0?'var(--red)':'var(--green)'};font-weight:600">日均 ${dayAvg>=0?'+':''}${dayAvg}%</span>
           <span class="hint">胜 ${dayWins}/${dayTotal}</span>
+          <span style="margin-left:auto" class="hint">${(dayWins/dayTotal*100).toFixed(0)}%</span>
         </div>
-        <table class="bt-trade-table"><thead><tr>
-          <th>股票</th><th>买入价</th><th>次日开盘</th><th>涨跌</th><th>策略</th><th>卖出价</th><th>盈亏</th>
-        </tr></thead><tbody>`;
+        <div id="${dayId}" class="bt-day-body" style="display:none">
+          <table class="bt-trade-table"><thead><tr>
+            <th>股票</th><th>买入价</th><th>次日开盘</th><th>涨跌</th><th>策略</th><th>卖出价</th><th>盈亏</th>
+          </tr></thead><tbody>`;
       dayTrades.forEach(t=>{
         html+=`<tr>
-          <td><b>${t.name}</b> <span class="dim">${t.symbol?.substr(-3)||''}</span></td>
+          <td><b>${t.name}</b> <span class="dim">${t.symbol||''}</span></td>
           <td>¥${t.buy_price}</td>
           <td>¥${t.next_open||'—'}</td>
           <td style="color:${(t.open_ratio||0)>=0?'var(--red)':'var(--green)'}">${t.open_ratio!=null?(t.open_ratio>=0?'+':'')+t.open_ratio+'%':'—'}</td>
@@ -1700,7 +1727,7 @@ function renderBacktest(r, containerId){
           <td>¥${t.sell_price}</td>
           <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td></tr>`;
       });
-      html += `</tbody></table></div>`;
+      html += `</tbody></table></div></div>`;
     });
     html += `<div class="hint" style="margin:6px 0">共 ${trades.length} 笔交易，胜率 ${(trades.filter(t=>t.is_win).length/trades.length*100).toFixed(0)}%</div>`;
   }
