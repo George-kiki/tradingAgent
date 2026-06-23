@@ -322,6 +322,10 @@
   .bt-stock-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:16px}
   .bt-stock-item{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px}
   .bt-stock-item .pick-rank{font-size:18px;font-weight:900;color:var(--gold);min-width:28px}
+  .bt-trade-table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+  .bt-trade-table th{background:var(--panel2);padding:8px 10px;text-align:left;color:var(--sub);border-bottom:2px solid var(--line);white-space:nowrap}
+  .bt-trade-table td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.05);white-space:nowrap}
+  .bt-trade-table tr:hover td{background:rgba(59,130,246,.08)}
 </style>
 </head>
 <body>
@@ -1660,6 +1664,28 @@ function renderBacktest(r, containerId){
     html += `<div class="sec-title">💀 最差个股 TOP ${worst.length}</div><div class="bt-stock-grid">`;
     worst.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--red)">${t.avg_return}%</span> <span class="dim">${t.appearances}次</span></div>`;});
     html+=`</div>`;
+  }
+  // 交易明细
+  const trades = r.trades||[];
+  if(trades.length){
+    html += `<div class="sec-title">📋 尾盘交易明细（买≈收盘价 · 次日早盘判断趋势 · 高开持收盘/低开开盘卖/平开收盘）</div>`;
+    html += `<div style="overflow-x:auto"><table class="bt-trade-table"><thead><tr>
+      <th>日期</th><th>股票</th><th>买入价</th><th>次日开盘</th><th>开盘%</th><th>策略</th><th>卖出价</th><th>盈亏%</th><th>结果</th>
+    </tr></thead><tbody>`;
+    let winCount=0, totalTrades=trades.length;
+    trades.forEach(t=>{
+      const win=t.is_win; if(win) winCount++;
+      html+=`<tr><td>${t.date}</td><td>${t.name}(${t.symbol?.substr(-3)||''})</td>
+        <td>¥${t.buy_price}</td>
+        <td>¥${t.next_open||'—'}</td>
+        <td style="color:${(t.open_ratio||0)>=0?'var(--red)':'var(--green)'}">${t.open_ratio!=null?(t.open_ratio>=0?'+':'')+t.open_ratio+'%':'—'}</td>
+        <td><span class="tag">${t.sell_strategy}</span></td>
+        <td>¥${t.sell_price}</td>
+        <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td>
+        <td>${win?'🟢赢':'🔴输'}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+    html += `<div class="hint" style="margin:6px 0">共 ${totalTrades} 笔交易，胜率 ${(winCount/totalTrades*100).toFixed(0)}%</div>`;
   }
   $(containerId).innerHTML = html;
 

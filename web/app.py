@@ -543,16 +543,26 @@ def api_recommend_history(limit: int = Query(30)):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-def _compute_backtest(db, days: int = 60) -> dict:
-    """聚合历史荐股回测指标。"""
-    from data.fetcher import get_fetcher, normalize_symbol
+def _compute_backtest(db, days: int = 60, fetcher=None) -> dict:
+    """聚合历史荐股回测指标，含尾盘买入→次日卖出的交易明细。
+
+    策略：
+    - 买入价: base_date 收盘价 ≈ 14:40 尾盘价格
+    - 卖出价: 次日早盘判断趋势
+      · 次日开盘 > 买入价 × 1.005（高开向好）→ 持有到收盘价卖出
+      · 次日开盘 < 买入价 × 0.995（低开走弱）→ 开盘即卖出（止损）
+      · 其他情况 → 收盘价卖出
+    """
+    from data.fetcher import get_fetcher
+
     dates = db.all_recommendation_dates()
     if not dates:
         return {"empty": True}
 
     all_picks = []
     batch_stats = []
-    stock_map: dict[str, dict] = {}  # symbol -> {name, appearances, returns, wins}
+    trades: list[dict] = []           # 交易明细
+    stock_map: dict[str, dict] = {}
 
     for d in sorted(dates)[-days:]:
         picks = db.get_recommendations(d)
@@ -563,12 +573,67 @@ def _compute_backtest(db, days: int = 60) -> dict:
         for p in picks:
             sym = p["symbol"]
             r = results.get(sym)
+            entry_price = float(p.get("entry_price") or r.get("eval_price_v2") or 0)
             nxt = r["next_pct"] if r else None
             is_win = r["is_win"] if r else None
+
+            # 获取次日开盘价（从K线数据）
+            next_open = None
+            sell_strategy = "收盘卖出"
+            try:
+                if fetcher:
+                    kline = fetcher.get_kline(sym, days=30)
+                    if kline is not None and not kline.empty and "open" in kline.columns:
+                        dates_k = kline["date"].tolist()
+                        # 找到base_date的下一个交易日
+                        after = [i for i, dd in enumerate(dates_k) if dd > d]
+                        if after:
+                            next_open = float(kline.iloc[after[0]]["open"])
+            except Exception:
+                pass
+
+            # 尾盘策略：根据次日开盘判断卖出时机
+            if next_open and entry_price and entry_price > 0:
+                open_ratio = next_open / entry_price
+                if open_ratio >= 1.005:
+                    sell_strategy = "高开持有→收盘卖出"
+                    if r and r.get("eval_price"):
+                        sell_price = float(r["eval_price"])
+                    else:
+                        sell_price = next_open  # fallback
+                elif open_ratio <= 0.995:
+                    sell_strategy = "低开走弱→开盘卖出"
+                    sell_price = next_open
+                else:
+                    sell_strategy = "平开→收盘卖出"
+                    if r and r.get("eval_price"):
+                        sell_price = float(r["eval_price"])
+                    else:
+                        sell_price = next_open
+
+                trade_pct = round((sell_price / entry_price - 1) * 100, 2)
+                trades.append({
+                    "date": d,
+                    "symbol": sym,
+                    "name": p.get("name", sym),
+                    "buy_price": round(entry_price, 2),
+                    "next_open": round(next_open, 2) if next_open else None,
+                    "open_ratio": round((open_ratio - 1) * 100, 2) if next_open else None,
+                    "sell_strategy": sell_strategy,
+                    "sell_price": round(sell_price, 2),
+                    "profit_pct": trade_pct,
+                    "is_win": trade_pct > 0,
+                })
+                if trade_pct is not None:
+                    batch_pcts.append(trade_pct)
+            else:
+                # 退化为收盘→收盘
+                if nxt is not None:
+                    batch_pcts.append(nxt)
+
             all_picks.append({"date": d, "symbol": sym, "name": p.get("name", sym),
                               "next_pct": nxt, "is_win": is_win})
             if nxt is not None:
-                batch_pcts.append(nxt)
                 stock_map.setdefault(sym, {"name": p.get("name", sym),
                     "appearances": 0, "returns": [], "wins": 0})
                 stock_map[sym]["appearances"] += 1
@@ -588,24 +653,28 @@ def _compute_backtest(db, days: int = 60) -> dict:
     if not batch_stats:
         return {"empty": True}
 
-    # 累计收益曲线
     cum = 0.0
     cum_series = []
     for b in batch_stats:
         cum += b["avg_return"]
         cum_series.append({"date": b["date"], "value": round(cum, 2)})
 
-    # 个股排行
     top_stocks = sorted(stock_map.values(), key=lambda x: sum(x["returns"]) / len(x["returns"]), reverse=True)
     for s in top_stocks:
         s["avg_return"] = round(sum(s["returns"]) / len(s["returns"]), 2)
         s["win_rate"] = round(s["wins"] / s["appearances"], 4) if s["appearances"] else 0
         del s["returns"]
 
+    # 交易明细按日期分组
+    trades_by_date: dict[str, list] = {}
+    for t in trades:
+        trades_by_date.setdefault(t["date"], []).append(t)
+
     return {
         "summary": {
             "total_batches": len(batch_stats),
             "total_picks": len(all_picks),
+            "total_trades": len(trades),
             "win_rate": round(sum(b["wins"] for b in batch_stats) / sum(b["picks"] for b in batch_stats), 4),
             "avg_return": round(sum(b["avg_return"] for b in batch_stats) / len(batch_stats), 2) if batch_stats else 0,
             "max_return": max(b["avg_return"] for b in batch_stats),
@@ -616,6 +685,8 @@ def _compute_backtest(db, days: int = 60) -> dict:
         "cumulative": cum_series,
         "top_stocks": top_stocks[:8],
         "worst_stocks": list(reversed(top_stocks[-8:])),
+        "trades": trades,              # 交易明细列表
+        "strategy": "尾盘买入(≈收盘价) → 次日早盘判断 → 高开持有/低开止损/平开收盘",
     }
 
 
@@ -633,8 +704,8 @@ def api_recommend_backtest(payload: dict = Body(...)):
 
         # 结算已有的未结算批次
         settle_all_pending(db, fetcher)
-        # 聚合（仅读 DB，不重新生成）
-        result = _compute_backtest(db, days)
+        # 聚合（传 fetcher 以获取次日开盘价）
+        result = _compute_backtest(db, days, fetcher=fetcher)
         result["mode"] = "每日荐股"
         if result.get("empty") or not result.get("daily"):
             result["message"] = "暂无足够历史数据。请先用 'python main.py recommend --backfill 30' 回填历史荐股。"
@@ -655,7 +726,7 @@ def api_tail_recommend_backtest(payload: dict = Body(...)):
         db = RecommendDB()
         fetcher = get_fetcher()
         settle_all_pending(db, fetcher)
-        result = _compute_backtest(db, days)
+        result = _compute_backtest(db, days, fetcher=fetcher)
         result["mode"] = "尾盘荐股"
         result["note"] = "入场价=当日收盘价 · 验证=次日收盘价 · 14:30后参照入场价尾盘买入"
         if result.get("empty") or not result.get("daily"):
