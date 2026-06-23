@@ -1665,27 +1665,44 @@ function renderBacktest(r, containerId){
     worst.forEach((t,i)=>{html+=`<div class="bt-stock-item"><span class="pick-rank">#${i+1}</span>${t.name}(${t.symbol?.substr(-3)}) <span style="color:var(--red)">${t.avg_return}%</span> <span class="dim">${t.appearances}次</span></div>`;});
     html+=`</div>`;
   }
-  // 交易明细
+  // 交易明细（按天分组）
   const trades = r.trades||[];
   if(trades.length){
-    html += `<div class="sec-title">📋 尾盘交易明细（买≈收盘价 · 次日早盘判断趋势 · 高开持收盘/低开开盘卖/平开收盘）</div>`;
-    html += `<div style="overflow-x:auto"><table class="bt-trade-table"><thead><tr>
-      <th>日期</th><th>股票</th><th>买入价</th><th>次日开盘</th><th>开盘%</th><th>策略</th><th>卖出价</th><th>盈亏%</th><th>结果</th>
-    </tr></thead><tbody>`;
-    let winCount=0, totalTrades=trades.length;
-    trades.forEach(t=>{
-      const win=t.is_win; if(win) winCount++;
-      html+=`<tr><td>${t.date}</td><td>${t.name}(${t.symbol?.substr(-3)||''})</td>
-        <td>¥${t.buy_price}</td>
-        <td>¥${t.next_open||'—'}</td>
-        <td style="color:${(t.open_ratio||0)>=0?'var(--red)':'var(--green)'}">${t.open_ratio!=null?(t.open_ratio>=0?'+':'')+t.open_ratio+'%':'—'}</td>
-        <td><span class="tag">${t.sell_strategy}</span></td>
-        <td>¥${t.sell_price}</td>
-        <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td>
-        <td>${win?'🟢赢':'🔴输'}</td></tr>`;
+    // 按日期分组
+    const byDate = {};
+    trades.forEach(t=>{ byDate[t.date] = byDate[t.date] || []; byDate[t.date].push(t); });
+    const sortedDates = Object.keys(byDate).sort();
+
+    html += `<div class="sec-title">📋 尾盘交易明细 · 按日展示（买≈14:40尾盘价 · 次日早盘趋势判断 · 高开持收盘/低开开盘卖/平开收盘）</div>`;
+    sortedDates.forEach(date=>{
+      const dayTrades = byDate[date];
+      const dayWins = dayTrades.filter(t=>t.is_win).length;
+      const dayTotal = dayTrades.length;
+      const dayAvg = (dayTrades.reduce((s,t)=>s+(t.profit_pct||0),0) / dayTotal).toFixed(2);
+
+      html += `<div class="bt-day-block" style="margin-bottom:16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden">
+        <div style="background:rgba(59,130,246,.12);padding:10px 14px;display:flex;align-items:center;gap:16px">
+          <span style="font-size:15px;font-weight:700">📅 ${date}</span>
+          <span class="hint">${dayTotal}只</span>
+          <span style="color:${dayAvg>=0?'var(--red)':'var(--green)'};font-weight:600">日均 ${dayAvg>=0?'+':''}${dayAvg}%</span>
+          <span class="hint">胜 ${dayWins}/${dayTotal}</span>
+        </div>
+        <table class="bt-trade-table"><thead><tr>
+          <th>股票</th><th>买入价</th><th>次日开盘</th><th>涨跌</th><th>策略</th><th>卖出价</th><th>盈亏</th>
+        </tr></thead><tbody>`;
+      dayTrades.forEach(t=>{
+        html+=`<tr>
+          <td><b>${t.name}</b> <span class="dim">${t.symbol?.substr(-3)||''}</span></td>
+          <td>¥${t.buy_price}</td>
+          <td>¥${t.next_open||'—'}</td>
+          <td style="color:${(t.open_ratio||0)>=0?'var(--red)':'var(--green)'}">${t.open_ratio!=null?(t.open_ratio>=0?'+':'')+t.open_ratio+'%':'—'}</td>
+          <td><span class="tag">${t.sell_strategy}</span></td>
+          <td>¥${t.sell_price}</td>
+          <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td></tr>`;
+      });
+      html += `</tbody></table></div>`;
     });
-    html += `</tbody></table></div>`;
-    html += `<div class="hint" style="margin:6px 0">共 ${totalTrades} 笔交易，胜率 ${(winCount/totalTrades*100).toFixed(0)}%</div>`;
+    html += `<div class="hint" style="margin:6px 0">共 ${trades.length} 笔交易，胜率 ${(trades.filter(t=>t.is_win).length/trades.length*100).toFixed(0)}%</div>`;
   }
   $(containerId).innerHTML = html;
 
