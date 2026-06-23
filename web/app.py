@@ -637,7 +637,7 @@ def _compute_backtest(db, days: int = 60, fetcher=None) -> dict:
             all_picks.append({"date": d, "symbol": sym, "name": p.get("name", sym),
                               "next_pct": nxt, "is_win": is_win})
             if nxt is not None:
-                stock_map.setdefault(sym, {"name": p.get("name", sym),
+                stock_map.setdefault(sym, {"symbol": sym, "name": p.get("name", sym),
                     "appearances": 0, "returns": [], "wins": 0})
                 stock_map[sym]["appearances"] += 1
                 stock_map[sym]["returns"].append(nxt)
