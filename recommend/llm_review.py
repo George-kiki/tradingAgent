@@ -141,29 +141,50 @@ def llm_review_candidates(
 
     try:
         resp = llm.chat(
-            system="你是A股短线风控分析师，只输出JSON，不作解释。",
+            system="你是A股短线风控分析师，只输出JSON数组，不作解释。",
             user=prompt,
             temperature=0.15,
-            max_tokens=800,
+            max_tokens=1200,  # 7-10只票需要更多token
             json_mode=True,
         )
-    except Exception:
+    except Exception as e:
+        print(f"[LLM复核] chat异常: {e}")
+        return None
+
+    if not resp or not resp.strip():
+        print("[LLM复核] 空响应, 尝试非json_mode重试...")
+        # DeepSeek json_mode 有时返回空，降级重试
+        try:
+            resp = llm.chat(
+                system="你是A股短线风控分析师。只输出纯JSON数组，不要任何解释或markdown。",
+                user=prompt + "\n\n记住：只输出JSON数组，不要```，不要解释。",
+                temperature=0.15,
+                max_tokens=1200,
+                json_mode=False,
+            )
+        except Exception:
+            pass
+
+    if not resp or not resp.strip():
+        print("[LLM复核] 重试后仍空响应")
         return None
 
     # 解析 JSON
     try:
         # 清理可能的 markdown 包裹
         resp = resp.strip()
-        if resp.startswith("```"):
-            resp = resp.split("\n", 1)[-1]
-            if resp.endswith("```"):
-                resp = resp[:-3]
-            resp = resp.strip()
+        # 提取最外层 JSON 数组
+        start = resp.find("[")
+        end = resp.rfind("]")
+        if start >= 0 and end > start:
+            resp = resp[start:end + 1]
         reviews = json.loads(resp)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"[LLM复核] JSON解析失败: {e}, raw={resp[:300]}")
         return None
 
     if not isinstance(reviews, list):
+        print(f"[LLM复核] 非list: {type(reviews)}, val={reviews}")
         return None
 
     # 标准化输出
@@ -177,6 +198,11 @@ def llm_review_candidates(
             "ai_flags": r.get("flags", []) if isinstance(r.get("flags"), list) else [],
             "ai_reason": str(r.get("reason", "")),
         })
+
+    if not out:
+        print(f"[LLM复核] 所有review项无效，reviews={reviews}")
+        return None
+    print(f"[LLM复核] 解析成功，{len(out)}只票")
 
     # 校验分数范围
     for o in out:

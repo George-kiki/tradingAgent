@@ -693,6 +693,8 @@ class RecommendEngine:
                                 item["score"] + rv["ai_score"], 4
                             )
                     print(f"[荐股] LLM复核完成，{len(reviews)}只票获得AI加减分")
+                else:
+                    print("[荐股] LLM复核返回空")
             except Exception as e:
                 print(f"[荐股] LLM复核跳过（{e}）")
 

@@ -1,0 +1,70 @@
+[荐股] 1/7 结算历史推荐...
+[荐股] 2/7 定位交易日...
+[通达信] 600519 K线获取成功，400条
+[荐股] 3/7 反思与权重（base_date=2026-06-23）...
+[荐股] 4/7 构建动态候选池...
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[板块] 东财限流，切换新浪行业板块备用源...
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试2次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[荐股] 候选池数量：50
+[荐股] 5/7 计算市场情绪...
+[荐股] 6/7 技术面初筛...
+[通达信] 603501 K线获取成功，400条
+[通达信] 002371 K线获取成功，400条
+[通达信] 603986 K线获取成功，400条
+[通达信] 002049 K线获取成功，400条
+[通达信] 600460 K线获取成功，400条
+[通达信] 002475 K线获取成功，400条
+[通达信] 002241 K线获取成功，400条
+[通达信] 603160 K线获取成功，400条
+[通达信] 600183 K线获取成功，400条
+[通达信] 002138 K线获取成功，400条
+[通达信] 002938 K线获取成功，400条
+[通达信] 601138 K线获取成功，400条
+[通达信] 002916 K线获取成功，400条
+[通达信] 002281 K线获取成功，400条
+[通达信] 002230 K线获取成功，400条
+[通达信] 002415 K线获取成功，400条
+[通达信] 600588 K线获取成功，400条
+[通达信] 000063 K线获取成功，400条
+[通达信] 600522 K线获取成功，400条
+[通达信] 002902 K线获取成功，400条
+[通达信] 000977 K线获取成功，400条
+[通达信] 603019 K线获取成功，400条
+[通达信] 002594 K线获取成功，400条
+[通达信] 002460 K线获取成功，400条
+[通达信] 002074 K线获取成功，400条
+[通达信] 601012 K线获取成功，400条
+[通达信] 002129 K线获取成功，400条
+[通达信] 600276 K线获取成功，400条
+[通达信] 603259 K线获取成功，400条
+[通达信] 002821 K线获取成功，400条
+[通达信] 600030 K线获取成功，400条
+[通达信] 601995 K线获取成功，400条
+[通达信] 600999 K线获取成功，400条
+[通达信] 000776 K线获取成功，400条
+[通达信] 600760 K线获取成功，400条
+[通达信] 002179 K线获取成功，400条
+[通达信] 600893 K线获取成功，400条
+[通达信] 000768 K线获取成功，400条
+[通达信] 002527 K线获取成功，400条
+[通达信] 002472 K线获取成功，400条
+[通达信] 600036 K线获取成功，400条
+[通达信] 601318 K线获取成功，400条
+[通达信] 600900 K线获取成功，400条
+[通达信] 600887 K线获取成功，400条
+[通达信] 601888 K线获取成功，400条
+[通达信] 601899 K线获取成功，400条
+[通达信] 000858 K线获取成功，400条
+[通达信] 000333 K线获取成功，400条
+[荐股] 初筛入围：16
+[荐股] 7/7 多因子富化与落库...
+[数据获取重试3次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试3次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[数据获取重试3次仍失败] ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
