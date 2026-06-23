@@ -26,6 +26,7 @@ from core.config import settings
 from core.indicators import add_all_indicators
 from data.fetcher import get_fetcher
 from recommend.database import RecommendDB
+from recommend.llm_review import llm_review_candidates
 from recommend.reflection import default_filters, default_weights, reflect
 from recommend.winrate import settle_all_pending
 from strategies.library import STRATEGY_REGISTRY
@@ -667,6 +668,34 @@ class RecommendEngine:
             except Exception:
                 item.setdefault("fundamentals", {})
             item["reason"] = self._gen_reason(item)
+
+        # LLM 后置复核：对规则筛完的候选做风险/机会评估，加减分叠加到最终分
+        llm_enabled = False
+        try:
+            from agents.llm import get_llm
+            llm_enabled = get_llm().available
+        except Exception:
+            pass
+        if llm_enabled and shortlist:
+            try:
+                reviews = llm_review_candidates(
+                    shortlist, sentiment, hot_week, base_date,
+                )
+                if reviews:
+                    review_map = {r["symbol"]: r for r in reviews}
+                    for item in shortlist:
+                        rv = review_map.get(item["symbol"])
+                        if rv:
+                            item["ai_score"] = rv["ai_score"]
+                            item["ai_flags"] = rv["ai_flags"]
+                            item["ai_reason"] = rv["ai_reason"]
+                            item["score"] = round(
+                                item["score"] + rv["ai_score"], 4
+                            )
+                    print(f"[荐股] LLM复核完成，{len(reviews)}只票获得AI加减分")
+            except Exception as e:
+                print(f"[荐股] LLM复核跳过（{e}）")
+
         shortlist.sort(key=lambda x: x["score"], reverse=True)
 
         # 6. 约束筛选（资金流入 / 板块上限 / 主线一致性），填满 count

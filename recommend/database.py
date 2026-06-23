@@ -61,9 +61,13 @@ class RecommendDB:
                     reason       TEXT,            -- 选中详细原因
                     factors      TEXT,            -- JSON：选股因子快照（rsi/pos52/动量/触发策略等），供反思
                     kline_mini   TEXT,            -- JSON：近60日K线（前端卡片用）
+                    ai_score     REAL,            -- LLM后置复核评分（可null）
+                    ai_flags     TEXT,            -- JSON：LLM复核标签
+                    ai_reason    TEXT,            -- LLM复核理由
                     created_at   TEXT,
                     UNIQUE(base_date, symbol)
                 );
+
 
                 -- 推荐结果回评
                 CREATE TABLE IF NOT EXISTS recommendation_results (
@@ -117,8 +121,21 @@ class RecommendDB:
                     note           TEXT,
                     created_at     TEXT
                 );
-                """
+            """
             )
+            # 迁移：为旧 DB 补上 LLM 复核字段
+            try:
+                c.execute("ALTER TABLE recommendations ADD COLUMN ai_score REAL")
+            except Exception:
+                pass
+            try:
+                c.execute("ALTER TABLE recommendations ADD COLUMN ai_flags TEXT")
+            except Exception:
+                pass
+            try:
+                c.execute("ALTER TABLE recommendations ADD COLUMN ai_reason TEXT")
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # 推荐明细
@@ -141,10 +158,12 @@ class RecommendDB:
                 c.execute(
                     """INSERT OR REPLACE INTO recommendations
                     (id, base_date, rec_date, symbol, name, rank, score, entry_price,
-                     industry, tags, reason, factors, kline_mini, created_at)
+                     industry, tags, reason, factors, kline_mini,
+                     ai_score, ai_flags, ai_reason, created_at)
                     VALUES (
                         (SELECT id FROM recommendations WHERE base_date=? AND symbol=?),
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        ?,?,?,?,?,?,?,?,?,?,?,?,
+                        ?,?,?,?)""",
                     (
                         base_date, p["symbol"],
                         base_date, None, p["symbol"], p.get("name"), i,
@@ -153,6 +172,9 @@ class RecommendDB:
                         p.get("reason"),
                         json.dumps(p.get("factors", {}), ensure_ascii=False),
                         json.dumps(p.get("kline_mini", {}), ensure_ascii=False),
+                        p.get("ai_score"),
+                        json.dumps(p.get("ai_flags", []), ensure_ascii=False),
+                        p.get("ai_reason"),
                         _now(),
                     ),
                 )
@@ -185,11 +207,11 @@ class RecommendDB:
     @staticmethod
     def _rec_row(r: sqlite3.Row) -> dict:
         d = dict(r)
-        for k in ("tags", "factors", "kline_mini"):
+        for k in ("tags", "factors", "kline_mini", "ai_flags"):
             try:
-                d[k] = json.loads(d.get(k) or ("[]" if k == "tags" else "{}"))
+                d[k] = json.loads(d.get(k) or ("[]" if k in ("tags", "ai_flags") else "{}"))
             except Exception:
-                d[k] = [] if k == "tags" else {}
+                d[k] = [] if k in ("tags", "ai_flags") else {}
         return d
 
     # ------------------------------------------------------------------

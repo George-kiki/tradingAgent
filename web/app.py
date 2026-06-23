@@ -628,6 +628,9 @@ def _compute_backtest(db, days: int = 60, fetcher=None) -> dict:
                     "sell_price": round(sell_price, 2),
                     "profit_pct": trade_pct,
                     "is_win": trade_pct > 0,
+                    "ai_score": p.get("ai_score"),
+                    "ai_flags": p.get("ai_flags", []),
+                    "ai_reason": p.get("ai_reason", ""),
                 })
                 batch_pcts.append(trade_pct)
             elif nxt is not None:

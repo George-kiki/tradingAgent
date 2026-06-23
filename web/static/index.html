@@ -1594,6 +1594,7 @@ function renderRecommend(r, isHistory){
       </div>
       ${renderMultifactor(mf)}
       <div class="pick-reason"><b>选中原因：</b>${p.reason||'-'}</div>
+      ${p.ai_reason?`<div class="pick-reason" style="color:var(--accent)">🤖 AI复核：${p.ai_reason} ${p.ai_score!=null?(p.ai_score>0?'+':'')+p.ai_score.toFixed(2):''} ${(p.ai_flags||[]).map(f=>'['+f+']').join(' ')}</div>`:''}
     </div>`;
   });
   html += `</div><div class="hint" style="margin-top:10px">⚠️ 推荐基于历史数据与量化模型，胜率持续通过反思机制迭代，仅供研究参考，不构成投资建议。</div>`;
@@ -1715,9 +1716,11 @@ function renderBacktest(r, containerId){
         </div>
         <div id="${dayId}" class="bt-day-body" style="display:none">
           <table class="bt-trade-table"><thead><tr>
-            <th>股票</th><th>买入价</th><th>次日开盘</th><th>涨跌</th><th>策略</th><th>卖出价</th><th>盈亏</th>
+            <th>股票</th><th>买入价</th><th>次日开盘</th><th>涨跌</th><th>策略</th><th>卖出价</th><th>盈亏</th><th>AI</th>
           </tr></thead><tbody>`;
       dayTrades.forEach(t=>{
+        const aiNote = t.ai_reason ? `${t.ai_reason} ${t.ai_score!=null?(t.ai_score>0?'+':'')+t.ai_score.toFixed(2):''}` : '—';
+        const aiFlags = (t.ai_flags||[]).map(f=>`[${f}]`).join('');
         html+=`<tr>
           <td><b>${t.name}</b> <span class="dim">${t.symbol||''}</span></td>
           <td>¥${t.buy_price}</td>
@@ -1725,7 +1728,8 @@ function renderBacktest(r, containerId){
           <td style="color:${(t.open_ratio||0)>=0?'var(--red)':'var(--green)'}">${t.open_ratio!=null?(t.open_ratio>=0?'+':'')+t.open_ratio+'%':'—'}</td>
           <td><span class="tag">${t.sell_strategy}</span></td>
           <td>¥${t.sell_price}</td>
-          <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td></tr>`;
+          <td style="font-weight:700;color:${(t.profit_pct||0)>=0?'var(--red)':'var(--green)'}">${(t.profit_pct||0)>=0?'+':''}${t.profit_pct}%</td>
+          <td class="dim" title="${aiNote}">${aiFlags||aiNote}</td></tr>`;
       });
       html += `</tbody></table></div></div>`;
     });
@@ -1923,6 +1927,7 @@ function renderTailRecommend(r){
       </div>
       ${renderMultifactor(mf)}
       <div class="pick-reason"><b>选中原因：</b>${p.reason||'-'}</div>
+      ${p.ai_reason?`<div class="pick-reason" style="color:var(--accent)">🤖 AI复核：${p.ai_reason} ${p.ai_score!=null?(p.ai_score>0?'+':'')+p.ai_score.toFixed(2):''} ${(p.ai_flags||[]).map(f=>'['+f+']').join(' ')}</div>`:''}
     </div>`;
   });
   html += `</div><div class="hint" style="margin-top:10px">⚠️ 尾盘荐股使用盘中数据，今日 15:00 前可买入，次日早盘验证。回测仅供参考。</div>`;
