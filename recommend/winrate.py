@@ -41,40 +41,41 @@ def _next_trading_close(df: pd.DataFrame, base_date: str) -> Optional[tuple[str,
     return dates[i + 1], float(df.iloc[i + 1]["close"])
 
 
-def settle_batch(db: RecommendDB, base_date: str, fetcher=None) -> Optional[dict]:
+def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
+                 mode: str = "daily") -> Optional[dict]:
     """结算某个推荐批次：逐只计算次日收益、判定胜负，并汇总胜率。
 
     返回该批次胜率汇总 dict；若次日数据尚不可得则返回 None（未结算）。
     """
     fetcher = fetcher or get_fetcher()
-    recs = db.get_recommendations(base_date)
+    recs = db.get_recommendations(base_date, mode=mode)
     if not recs:
         return None
 
     win_th = settings.win_pct_threshold
     settled = 0
     for rec in recs:
-        if db.has_result(base_date, rec["symbol"]):
+        if db.has_result(base_date, rec["symbol"], mode=mode):
             settled += 1
             continue
         df = fetcher.get_kline(rec["symbol"], days=400)
         nxt = _next_trading_close(df, base_date)
         if nxt is None:
-            continue  # 次日数据未出，跳过
+            continue
         eval_date, eval_close = nxt
         entry = rec.get("entry_price")
         if not entry:
-            # 入场价缺失则用 base_date 当日收盘兜底
             row = df[df["date"] == base_date]
             entry = float(row.iloc[0]["close"]) if not row.empty else eval_close
         next_pct = round((eval_close / entry - 1) * 100, 2)
         is_win = 1 if next_pct > win_th else 0
         note = "次日上涨" if is_win else "次日未达标"
         db.save_result(rec["id"], base_date, eval_date, rec["symbol"],
-                       round(float(entry), 2), round(eval_close, 2), next_pct, is_win, note)
+                       round(float(entry), 2), round(eval_close, 2),
+                       next_pct, is_win, note, mode=mode)
         settled += 1
 
-    results = db.get_results(base_date)
+    results = db.get_results(base_date, mode=mode)
     if not results:
         return None
     total = len(results)
@@ -89,17 +90,17 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None) -> Optional[dict
 
 
 def settle_all_pending(db: RecommendDB, fetcher=None) -> list[dict]:
-    """结算所有可结算但尚未结算（或胜率未汇总）的历史批次。"""
+    """结算所有可结算但尚未结算的历史批次（含 daily 和 tail 两种模式）。"""
     fetcher = fetcher or get_fetcher()
     out = []
-    for base_date in db.all_recommendation_dates():
-        wr = db.get_winrate(base_date)
-        recs = db.get_recommendations(base_date)
-        results = db.get_results(base_date)
-        # 已全部结算且已汇总则跳过
-        if wr and len(results) >= len(recs):
-            continue
-        settled = settle_batch(db, base_date, fetcher)
-        if settled:
-            out.append(settled)
+    for mode in ("daily", "tail"):
+        for base_date in db.all_recommendation_dates(mode=mode):
+            wr = db.get_winrate(base_date)
+            recs = db.get_recommendations(base_date, mode=mode)
+            results = db.get_results(base_date, mode=mode)
+            if wr and len(results) >= len(recs):
+                continue
+            settled = settle_batch(db, base_date, fetcher, mode=mode)
+            if settled:
+                out.append(settled)
     return out

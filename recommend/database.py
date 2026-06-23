@@ -46,10 +46,10 @@ class RecommendDB:
         with self._conn() as c:
             c.executescript(
                 """
-                -- 每日推荐明细
+                -- 每日推荐明细（支持 mode 字段区分 daily/tail）
                 CREATE TABLE IF NOT EXISTS recommendations (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    base_date    TEXT NOT NULL,   -- 选股所依据的"前一日"数据日期（= 入场参考日）
+                    base_date    TEXT NOT NULL,   -- 选股所依据的数据日期（= 入场参考日）
                     rec_date     TEXT,            -- 建议操作日（次一交易日，结算时回填）
                     symbol       TEXT NOT NULL,
                     name         TEXT,
@@ -59,30 +59,31 @@ class RecommendDB:
                     industry     TEXT,
                     tags         TEXT,            -- JSON 数组
                     reason       TEXT,            -- 选中详细原因
-                    factors      TEXT,            -- JSON：选股因子快照（rsi/pos52/动量/触发策略等），供反思
-                    kline_mini   TEXT,            -- JSON：近60日K线（前端卡片用）
-                    ai_score     REAL,            -- LLM后置复核评分（可null）
+                    factors      TEXT,            -- JSON：选股因子快照
+                    kline_mini   TEXT,            -- JSON：近60日K线
+                    ai_score     REAL,            -- LLM后置复核评分
                     ai_flags     TEXT,            -- JSON：LLM复核标签
                     ai_reason    TEXT,            -- LLM复核理由
+                    mode         TEXT DEFAULT 'daily',  -- 推荐模式：daily(每日荐股) / tail(尾盘荐股)
                     created_at   TEXT,
-                    UNIQUE(base_date, symbol)
+                    UNIQUE(base_date, symbol, mode)
                 );
-
 
                 -- 推荐结果回评
                 CREATE TABLE IF NOT EXISTS recommendation_results (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     rec_id      INTEGER NOT NULL,
-                    base_date   TEXT NOT NULL,   -- 对应推荐批次
-                    eval_date   TEXT,            -- 评估日（次一交易日）
+                    base_date   TEXT NOT NULL,
+                    eval_date   TEXT,
                     symbol      TEXT NOT NULL,
                     entry_price REAL,
                     eval_price  REAL,
-                    next_pct    REAL,            -- 次日涨跌幅 %
-                    is_win      INTEGER,         -- 1 赢 / 0 输
+                    next_pct    REAL,
+                    is_win      INTEGER,
                     note        TEXT,
+                    mode        TEXT DEFAULT 'daily',  -- 与推荐批次 mode 对应
                     created_at  TEXT,
-                    UNIQUE(base_date, symbol),
+                    UNIQUE(base_date, symbol, mode),
                     FOREIGN KEY(rec_id) REFERENCES recommendations(id)
                 );
 
@@ -91,8 +92,8 @@ class RecommendDB:
                     base_date   TEXT PRIMARY KEY,
                     total       INTEGER,
                     wins        INTEGER,
-                    win_rate    REAL,            -- 0~1
-                    avg_return  REAL,            -- 平均次日收益 %
+                    win_rate    REAL,
+                    avg_return  REAL,
                     best_symbol TEXT,
                     worst_symbol TEXT,
                     created_at  TEXT
@@ -101,71 +102,69 @@ class RecommendDB:
                 -- 反思记录
                 CREATE TABLE IF NOT EXISTS reflections (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    reflect_date  TEXT,          -- 生成反思的日期（= 今日 base_date）
-                    based_on_date TEXT,          -- 针对哪个推荐批次反思（= 昨日 base_date）
+                    reflect_date  TEXT,
+                    based_on_date TEXT,
                     prev_win_rate REAL,
                     threshold     REAL,
-                    dimensions    TEXT,          -- JSON：各反思维度诊断
-                    conclusion    TEXT,          -- 反思结论（作为今日约束的自然语言）
-                    adjustments   TEXT,          -- JSON：权重/约束调整
+                    dimensions    TEXT,
+                    conclusion    TEXT,
+                    adjustments   TEXT,
                     llm_used      INTEGER,
                     created_at    TEXT
                 );
 
-                -- 动态策略权重与约束（反思迭代载体）
+                -- 动态策略权重与约束
                 CREATE TABLE IF NOT EXISTS strategy_weights (
-                    effective_date TEXT PRIMARY KEY,  -- 生效日（base_date）
-                    weights        TEXT,              -- JSON：{strategy_name: weight}
-                    filters        TEXT,              -- JSON：约束条件
-                    source         TEXT,              -- reflection / default
+                    effective_date TEXT PRIMARY KEY,
+                    weights        TEXT,
+                    filters        TEXT,
+                    source         TEXT,
                     note           TEXT,
                     created_at     TEXT
                 );
             """
             )
+            # 迁移：为旧 DB 补上 mode 字段（旧数据自动归为 'daily'）
+            for tbl in ("recommendations", "recommendation_results"):
+                try:
+                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN mode TEXT DEFAULT 'daily'")
+                except Exception:
+                    pass
             # 迁移：为旧 DB 补上 LLM 复核字段
-            try:
-                c.execute("ALTER TABLE recommendations ADD COLUMN ai_score REAL")
-            except Exception:
-                pass
-            try:
-                c.execute("ALTER TABLE recommendations ADD COLUMN ai_flags TEXT")
-            except Exception:
-                pass
-            try:
-                c.execute("ALTER TABLE recommendations ADD COLUMN ai_reason TEXT")
-            except Exception:
-                pass
+            for col_decl in ("ai_score REAL", "ai_flags TEXT", "ai_reason TEXT"):
+                try:
+                    c.execute(f"ALTER TABLE recommendations ADD COLUMN {col_decl}")
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # 推荐明细
     # ------------------------------------------------------------------
-    def save_recommendations(self, base_date: str, picks: list[dict]) -> None:
+    def save_recommendations(self, base_date: str, picks: list[dict],
+                             mode: str = "daily") -> None:
         symbols = [p["symbol"] for p in picks]
         with self._conn() as c:
-            # 先清理该批次中"不在本次名单"的旧记录，避免重复生成时残留多出的标的
             if symbols:
                 ph = ",".join("?" * len(symbols))
                 c.execute(
-                    f"DELETE FROM recommendations WHERE base_date=? AND symbol NOT IN ({ph})",
-                    (base_date, *symbols),
+                    f"DELETE FROM recommendations WHERE base_date=? AND mode=? AND symbol NOT IN ({ph})",
+                    (base_date, mode, *symbols),
                 )
                 c.execute(
-                    f"DELETE FROM recommendation_results WHERE base_date=? AND symbol NOT IN ({ph})",
-                    (base_date, *symbols),
+                    f"DELETE FROM recommendation_results WHERE base_date=? AND mode=? AND symbol NOT IN ({ph})",
+                    (base_date, mode, *symbols),
                 )
             for i, p in enumerate(picks, 1):
                 c.execute(
                     """INSERT OR REPLACE INTO recommendations
                     (id, base_date, rec_date, symbol, name, rank, score, entry_price,
                      industry, tags, reason, factors, kline_mini,
-                     ai_score, ai_flags, ai_reason, created_at)
+                     ai_score, ai_flags, ai_reason, mode, created_at)
                     VALUES (
-                        (SELECT id FROM recommendations WHERE base_date=? AND symbol=?),
-                        ?,?,?,?,?,?,?,?,?,?,?,?,
-                        ?,?,?,?)""",
+                        (SELECT id FROM recommendations WHERE base_date=? AND symbol=? AND mode=?),
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        base_date, p["symbol"],
+                        base_date, p["symbol"], mode,
                         base_date, None, p["symbol"], p.get("name"), i,
                         p.get("score"), p.get("entry_price"), p.get("industry"),
                         json.dumps(p.get("tags", []), ensure_ascii=False),
@@ -175,33 +174,46 @@ class RecommendDB:
                         p.get("ai_score"),
                         json.dumps(p.get("ai_flags", []), ensure_ascii=False),
                         p.get("ai_reason"),
+                        mode,
                         _now(),
                     ),
                 )
 
-    def get_recommendations(self, base_date: str) -> list[dict]:
+    def get_recommendations(self, base_date: str, mode: str = "daily") -> list[dict]:
         with self._conn() as c:
             rows = c.execute(
-                "SELECT * FROM recommendations WHERE base_date=? ORDER BY rank", (base_date,)
+                "SELECT * FROM recommendations WHERE base_date=? AND mode=? ORDER BY rank",
+                (base_date, mode),
             ).fetchall()
         return [self._rec_row(r) for r in rows]
 
-    def latest_recommendation_date(self, before: Optional[str] = None) -> Optional[str]:
+    def latest_recommendation_date(self, before: Optional[str] = None,
+                                   mode: Optional[str] = None) -> Optional[str]:
         sql = "SELECT DISTINCT base_date FROM recommendations"
-        args: tuple = ()
+        args: list = []
+        conds = []
         if before:
-            sql += " WHERE base_date < ?"
-            args = (before,)
+            conds.append("base_date < ?")
+            args.append(before)
+        if mode:
+            conds.append("mode = ?")
+            args.append(mode)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY base_date DESC LIMIT 1"
         with self._conn() as c:
-            row = c.execute(sql, args).fetchone()
+            row = c.execute(sql, tuple(args)).fetchone()
         return row["base_date"] if row else None
 
-    def all_recommendation_dates(self) -> list[str]:
+    def all_recommendation_dates(self, mode: Optional[str] = None) -> list[str]:
+        sql = "SELECT DISTINCT base_date FROM recommendations"
+        args = ()
+        if mode:
+            sql += " WHERE mode = ?"
+            args = (mode,)
+        sql += " ORDER BY base_date DESC"
         with self._conn() as c:
-            rows = c.execute(
-                "SELECT DISTINCT base_date FROM recommendations ORDER BY base_date DESC"
-            ).fetchall()
+            rows = c.execute(sql, args).fetchall()
         return [r["base_date"] for r in rows]
 
     @staticmethod
@@ -219,44 +231,43 @@ class RecommendDB:
     # ------------------------------------------------------------------
     def save_result(self, rec_id: int, base_date: str, eval_date: str, symbol: str,
                     entry_price: float, eval_price: float, next_pct: float,
-                    is_win: int, note: str = "") -> None:
+                    is_win: int, note: str = "", mode: str = "daily") -> None:
         with self._conn() as c:
             c.execute(
                 """INSERT OR REPLACE INTO recommendation_results
                 (id, rec_id, base_date, eval_date, symbol, entry_price, eval_price,
-                 next_pct, is_win, note, created_at)
+                 next_pct, is_win, note, mode, created_at)
                 VALUES (
-                    (SELECT id FROM recommendation_results WHERE base_date=? AND symbol=?),
-                    ?,?,?,?,?,?,?,?,?,?)""",
-                (base_date, symbol, rec_id, base_date, eval_date, symbol,
-                 entry_price, eval_price, next_pct, is_win, note, _now()),
+                    (SELECT id FROM recommendation_results WHERE base_date=? AND symbol=? AND mode=?),
+                    ?,?,?,?,?,?,?,?,?,?,?)""",
+                (base_date, symbol, mode,
+                 rec_id, base_date, eval_date, symbol,
+                 entry_price, eval_price, next_pct, is_win, note, mode, _now()),
             )
-        # 同步回填推荐表的 rec_date
         with self._conn() as c:
-            c.execute("UPDATE recommendations SET rec_date=? WHERE base_date=? AND symbol=?",
-                      (eval_date, base_date, symbol))
+            c.execute("UPDATE recommendations SET rec_date=? WHERE base_date=? AND symbol=? AND mode=?",
+                      (eval_date, base_date, symbol, mode))
 
-    def has_result(self, base_date: str, symbol: str) -> bool:
+    def has_result(self, base_date: str, symbol: str, mode: str = "daily") -> bool:
         with self._conn() as c:
             row = c.execute(
-                "SELECT 1 FROM recommendation_results WHERE base_date=? AND symbol=?",
-                (base_date, symbol),
+                "SELECT 1 FROM recommendation_results WHERE base_date=? AND symbol=? AND mode=?",
+                (base_date, symbol, mode),
             ).fetchone()
         return row is not None
 
-    def get_results(self, base_date: str) -> list[dict]:
+    def get_results(self, base_date: str, mode: str = "daily") -> list[dict]:
         with self._conn() as c:
             rows = c.execute(
-                "SELECT * FROM recommendation_results WHERE base_date=? ORDER BY next_pct DESC",
-                (base_date,),
+                "SELECT * FROM recommendation_results WHERE base_date=? AND mode=? ORDER BY next_pct DESC",
+                (base_date, mode),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_picks_with_results(self, base_date: str) -> list[dict]:
-        """联表：推荐明细 + 其结果（供反思使用）。"""
-        recs = {r["symbol"]: r for r in self.get_recommendations(base_date)}
+    def get_picks_with_results(self, base_date: str, mode: str = "daily") -> list[dict]:
+        recs = {r["symbol"]: r for r in self.get_recommendations(base_date, mode=mode)}
         out = []
-        for res in self.get_results(base_date):
+        for res in self.get_results(base_date, mode=mode):
             rec = recs.get(res["symbol"], {})
             merged = {**rec, **{f"result_{k}": v for k, v in res.items()}}
             merged["next_pct"] = res["next_pct"]

@@ -86,6 +86,10 @@ def job_recommend(count: int = 5, force: bool = False, tailpick_mode: bool = Fal
 
 def job_tail_recommend(count: int = 5, force: bool = False) -> str:
     """尾盘荐股：14:30 盘中推荐，当日尾盘买入、次日验证。"""
+    from data.cache import invalidate_pattern
+    cleared = invalidate_pattern()
+    if cleared:
+        print(f"[尾盘荐股] 已清除 {cleared} 个数据缓存，从 A-Stock 实时拉取...")
     return job_recommend(count=count, force=force, tailpick_mode=True)
 
 

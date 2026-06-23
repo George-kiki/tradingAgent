@@ -560,7 +560,8 @@ class RecommendEngine:
     # ------------------------------------------------------------------
     def run(self, as_of: Optional[str] = None, count: Optional[int] = None,
             pool: Optional[list[str]] = None,
-            extra_filters: Optional[dict] = None) -> dict:
+            extra_filters: Optional[dict] = None,
+            mode: str = "daily") -> dict:
         count = count or settings.recommend_count
 
         print("[荐股] 1/7 结算历史推荐...")
@@ -677,6 +678,7 @@ class RecommendEngine:
         except Exception:
             pass
         if llm_enabled and shortlist:
+            print(f"[荐股] LLM复核：enabled=True shortlist={len(shortlist)}")
             try:
                 reviews = llm_review_candidates(
                     shortlist, sentiment, hot_week, base_date,
@@ -692,11 +694,20 @@ class RecommendEngine:
                             item["score"] = round(
                                 item["score"] + rv["ai_score"], 4
                             )
+                            print(
+                                f"  {item['symbol']} ai{rv['ai_score']:+.4f} "
+                                f"→ final={item['score']:.4f} "
+                                f"flags={rv['ai_flags']}"
+                            )
                     print(f"[荐股] LLM复核完成，{len(reviews)}只票获得AI加减分")
                 else:
-                    print("[荐股] LLM复核返回空")
+                    print("[荐股] LLM复核返回空（降级：仅用规则评分）")
             except Exception as e:
                 print(f"[荐股] LLM复核跳过（{e}）")
+        elif llm_enabled:
+            print("[荐股] LLM复核：shortlist为空，跳过")
+        else:
+            print("[荐股] LLM复核：LLM不可用，跳过")
 
         shortlist.sort(key=lambda x: x["score"], reverse=True)
 
@@ -795,8 +806,8 @@ class RecommendEngine:
 
         if len(picks) < count:
             print(f"[荐股] 顺势主线优质标的仅 {len(picks)} 只（宁缺毋滥，未凑满 {count}）")
-        print(f"[荐股] 最终推荐：{len(picks)}，写入数据库...")
-        self.db.save_recommendations(base_date, picks)
+        print(f"[荐股] 最终推荐：{len(picks)}，写入数据库（mode={mode}）...")
+        self.db.save_recommendations(base_date, picks, mode=mode)
 
         from agents.llm import get_llm
         prev_wr = self.db.latest_winrate(before=base_date)

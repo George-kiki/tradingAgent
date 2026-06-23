@@ -385,15 +385,15 @@ def api_recommend(count: int = Query(5), date: str = Query(""),
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-def _recommend_view(db, base_date: str) -> dict:
+def _recommend_view(db, base_date: str, mode: str = "daily") -> dict:
     """读取某一批次的荐股视图（picks + 结果 + 胜率 + 反思），latest/by-date 共用。"""
     from core.config import settings
     from data.fetcher import get_fetcher
     from recommend.engine import resolve_name
     from recommend.sentiment import compute_market_sentiment
 
-    picks = db.get_recommendations(base_date)
-    results = {r["symbol"]: r for r in db.get_results(base_date)}
+    picks = db.get_recommendations(base_date, mode=mode)
+    results = {r["symbol"]: r for r in db.get_results(base_date, mode=mode)}
     f = get_fetcher()
     name_fixed = False
     for p in picks:
@@ -410,7 +410,7 @@ def _recommend_view(db, base_date: str) -> dict:
             p["eval_price"] = r.get("eval_price")
     if name_fixed:
         try:
-            db.save_recommendations(base_date, picks)
+            db.save_recommendations(base_date, picks, mode=mode)
         except Exception:
             pass
 
@@ -779,12 +779,27 @@ def api_tail_recommend_status():
     return _tail_recommend_status()
 
 
+def _is_realtime_window() -> bool:
+    """判断当前是否处于尾盘实时数据窗口（交易日 14:30-14:50）。
+
+    窗口内：清缓存、从 A-Stock 直连拉最新实时行情（用于实际买入决策）。
+    窗口外（含 15:00 收盘后）：使用缓存数据（与 14:30 决策时点一致，保证验证可复现）。
+    """
+    now = dt.datetime.now()
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return dt.time(14, 30) <= t <= dt.time(14, 50)
+
+
 @app.get("/api/tail-recommend")
 def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
     """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。
 
-    首次生成较慢（需结算历史+动态池+评分+富化），落库后下次秒开。
-    force=True 可跳过时间门控，force 模式下不走缓存直接重算。
+    数据策略：
+    - 14:30-14:50（盘中买入窗口）：清缓存，A-Stock 直连实时行情
+    - 15:00 收盘后：用 14:30 的缓存数据（与决策时点一致，保证验证可复现）
+    force=True 可跳过时间门控强制重算。
     """
     status = _tail_recommend_status()
     if not status["can_regenerate"] and not force:
@@ -792,23 +807,33 @@ def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
 
     from recommend.engine import RecommendEngine
     from recommend.database import RecommendDB
+    MODE = "tail"
     try:
         db = RecommendDB()
         today_str = dt.date.today().strftime("%Y-%m-%d")
 
-        # 今天已生成过且非强制重算 → 直接返回缓存（秒开）
-        if not force and db.latest_recommendation_date() == today_str and db.get_recommendations(today_str):
-            res = _recommend_view(db, today_str)
+        # force=False 且今日已有结果 → 直接返回 DB 缓存（秒开）
+        if not force and db.latest_recommendation_date(mode=MODE) == today_str \
+                and db.get_recommendations(today_str, mode=MODE):
+            res = _recommend_view(db, today_str, mode=MODE)
             res["cached"] = True
             res["tailpick_mode"] = True
             return JSONResponse(res)
 
-        # 首次生成：复用每日荐股的缓存逻辑，避免重复重算
+        # 仅在实时窗口内清除数据缓存
+        in_window = _is_realtime_window()
+        if in_window:
+            from data.cache import invalidate_pattern
+            cleared = invalidate_pattern()
+            print(f"[尾盘荐股] 实时窗口 {dt.datetime.now():%H:%M}，已清除 {cleared} 个缓存，A-Stock 实时拉取...")
+        else:
+            print(f"[尾盘荐股] 非实时窗口 {dt.datetime.now():%H:%M}，使用缓存数据（与 14:30 一致）")
+
         eng = RecommendEngine()
-        res = eng.run(count=count)
+        res = eng.run(count=count, mode=MODE)
         if res.get("error"):
             return JSONResponse(res, status_code=400)
-        return JSONResponse({**res, "tailpick_mode": True})
+        return JSONResponse({**res, "tailpick_mode": True, "data_realtime": in_window})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
