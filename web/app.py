@@ -573,43 +573,48 @@ def _compute_backtest(db, days: int = 60, fetcher=None) -> dict:
         for p in picks:
             sym = p["symbol"]
             r = results.get(sym)
-            entry_price = float(p.get("entry_price") or r.get("eval_price_v2") or 0)
+            # entry_price: recommendations表里存的入场参考价
+            entry_price = float(p.get("entry_price") or 0)
+            if not entry_price and r:
+                entry_price = float(r.get("entry_price") or 0)
             nxt = r["next_pct"] if r else None
             is_win = r["is_win"] if r else None
 
             # 获取次日开盘价（从K线数据）
             next_open = None
-            sell_strategy = "收盘卖出"
+            next_close_db = float(r.get("eval_price") or 0) if r else 0
+            sell_strategy = "收盘卖出（无开盘数据）"
             try:
-                if fetcher:
-                    kline = fetcher.get_kline(sym, days=30)
+                if fetcher and entry_price > 0:
+                    kline = fetcher.get_kline(sym, days=60)
                     if kline is not None and not kline.empty and "open" in kline.columns:
                         dates_k = kline["date"].tolist()
                         # 找到base_date的下一个交易日
-                        after = [i for i, dd in enumerate(dates_k) if dd > d]
-                        if after:
-                            next_open = float(kline.iloc[after[0]]["open"])
+                        after_idx = None
+                        for i, dd in enumerate(dates_k):
+                            if dd > d:
+                                after_idx = i
+                                break
+                        if after_idx is not None:
+                            next_open = float(kline.iloc[after_idx]["open"])
+                            # 如果结果里已有次日收盘价，直接取；否则从K线取
+                            if not next_close_db:
+                                next_close_db = float(kline.iloc[after_idx]["close"])
             except Exception:
                 pass
 
             # 尾盘策略：根据次日开盘判断卖出时机
-            if next_open and entry_price and entry_price > 0:
+            if next_open and entry_price > 0 and next_close_db > 0:
                 open_ratio = next_open / entry_price
                 if open_ratio >= 1.005:
                     sell_strategy = "高开持有→收盘卖出"
-                    if r and r.get("eval_price"):
-                        sell_price = float(r["eval_price"])
-                    else:
-                        sell_price = next_open  # fallback
+                    sell_price = next_close_db
                 elif open_ratio <= 0.995:
                     sell_strategy = "低开走弱→开盘卖出"
                     sell_price = next_open
                 else:
                     sell_strategy = "平开→收盘卖出"
-                    if r and r.get("eval_price"):
-                        sell_price = float(r["eval_price"])
-                    else:
-                        sell_price = next_open
+                    sell_price = next_close_db
 
                 trade_pct = round((sell_price / entry_price - 1) * 100, 2)
                 trades.append({
@@ -617,19 +622,17 @@ def _compute_backtest(db, days: int = 60, fetcher=None) -> dict:
                     "symbol": sym,
                     "name": p.get("name", sym),
                     "buy_price": round(entry_price, 2),
-                    "next_open": round(next_open, 2) if next_open else None,
-                    "open_ratio": round((open_ratio - 1) * 100, 2) if next_open else None,
+                    "next_open": round(next_open, 2),
+                    "open_ratio": round((open_ratio - 1) * 100, 2),
                     "sell_strategy": sell_strategy,
                     "sell_price": round(sell_price, 2),
                     "profit_pct": trade_pct,
                     "is_win": trade_pct > 0,
                 })
-                if trade_pct is not None:
-                    batch_pcts.append(trade_pct)
-            else:
+                batch_pcts.append(trade_pct)
+            elif nxt is not None:
                 # 退化为收盘→收盘
-                if nxt is not None:
-                    batch_pcts.append(nxt)
+                batch_pcts.append(nxt)
 
             all_picks.append({"date": d, "symbol": sym, "name": p.get("name", sym),
                               "next_pct": nxt, "is_win": is_win})
