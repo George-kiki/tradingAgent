@@ -609,6 +609,12 @@ class DataFetcher:
         except Exception:
             return None
 
+        # 快速预检：3s 内连不上直接放弃，不拖慢降级链
+        try:
+            _check = requests.head("https://push2.eastmoney.com", timeout=3)
+        except Exception:
+            return None
+
         sess = requests.Session()
         retry = Retry(total=1, connect=1, read=1, backoff_factor=0.3,
                       status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"])

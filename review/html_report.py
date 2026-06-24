@@ -70,7 +70,23 @@ HTML_SKELETON = """<!DOCTYPE html>
   .chart-wrap { background: #0d1117; border-radius: 8px; padding: 10px; }
   .footer { text-align: center; color: #484f58; font-size: 11px; margin-top: 36px; padding-top: 16px; border-top: 1px solid #21262d; }
   .plan-table td:first-child { font-weight: 600; color: #79c0ff; }
+  .plan-table td:first-child { font-weight: 600; color: #79c0ff; }
   .nope { text-decoration: line-through; color: #484f58; }
+  .mainline-section { margin-top: 30px; padding: 18px; border: 1px solid #f0b42955; border-radius: 14px; background: radial-gradient(circle at top left, #2b211033, transparent 38%), linear-gradient(135deg, #161b22 0%, #10151d 100%); box-shadow: 0 0 0 1px rgba(240,180,41,.08), 0 12px 40px rgba(0,0,0,.18); }
+  .mainline-section h2 { margin-top: 4px; color: #f0b429; border-left-color: #f0b429; }
+  .mainline-section h3 { color: #79c0ff; margin-top: 20px; }
+  .mainline-section blockquote { margin: 10px 0; padding: 12px 14px; border-left: 3px solid #f0b429; background: rgba(240,180,41,.08); border-radius: 8px; color: #d7dde6; }
+  .mainline-section table { overflow: hidden; border-radius: 10px; border: 1px solid #30363d; }
+  .mainline-section th { background: #2a2116; color: #f0b429; }
+  .mainline-section td:first-child { color: #79c0ff; font-weight: 700; }
+  .mainline-section p { margin: 10px 0; font-size: 14px; }
+  .mainline-section strong { color: #f0b429; }
+  .final-summary-section { margin-top: 30px; padding: 24px; border: 2px solid #58a6ff55; border-radius: 16px; background: linear-gradient(135deg, #0d2137 0%, #0d1117 50%, #10151d 100%); box-shadow: 0 0 0 1px rgba(88,166,255,.12), 0 16px 48px rgba(0,0,0,.24); }
+  .final-summary-section h2 { color: #58a6ff; border-left-color: #58a6ff; margin-top: 0; }
+  .final-summary-section h3 { color: #79c0ff; }
+  .final-summary-section blockquote { margin: 10px 0; padding: 12px 14px; border-left: 3px solid #58a6ff; background: rgba(88,166,255,.08); border-radius: 8px; color: #d7dde6; }
+  .final-summary-section li { margin: 6px 0; }
+  .final-summary-section strong { color: #58a6ff; }
   /* 强度徽章：分段进度条 + 文字（自适应，不再拥挤/重叠）*/
   .strength-bar { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px;
     border-radius: 20px; background: rgba(255,255,255,0.04); border: 1px solid #30363d;
@@ -195,7 +211,8 @@ def _top_limit_up(spot: pd.DataFrame, n: int = 15) -> list[dict]:
 def _collect_data(fetcher) -> dict:
     """尽力收集复盘所需的当日真实数据，单项失败不影响其余。"""
     data: dict = {"indices": [], "breadth": {}, "sectors": [], "limit_up": [],
-                  "limit_down": [], "lhb_top": [], "global": [], "limit_history": []}
+                  "limit_down": [], "lhb_top": [], "global": [], "limit_history": [],
+                  "core_large_caps": []}
     try:
         data["indices"] = fetcher.get_index_spot()
     except Exception:
@@ -238,6 +255,47 @@ def _collect_data(fetcher) -> dict:
         data["lhb_top"] = out
     except Exception:
         pass
+    try:
+        spot = fetcher.get_market_spot()
+        if spot is not None and not spot.empty:
+            code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+            name_col = next((c for c in spot.columns if c in ("名称", "name")), None)
+            pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+            turn_col = next((c for c in spot.columns if "换手" in c), None)
+            mcap_col = next((c for c in spot.columns if "总市值" in c or "市值" in c), None)
+            vol_col = next((c for c in spot.columns if "量比" in c), None)
+            if code_col and pct_col and name_col:
+                df = spot.copy()
+                df["_pct"] = pd.to_numeric(df[pct_col], errors="coerce")
+                if mcap_col:
+                    df["_mcap"] = pd.to_numeric(df[mcap_col], errors="coerce") / 1e8
+                else:
+                    df["_mcap"] = 0
+                if turn_col:
+                    df["_turn"] = pd.to_numeric(df[turn_col], errors="coerce")
+                else:
+                    df["_turn"] = 0
+                if vol_col:
+                    df["_vol"] = pd.to_numeric(df[vol_col], errors="coerce")
+                else:
+                    df["_vol"] = 1.0
+                # 筛选：涨跌幅>3% 且 市值>300亿
+                caps = df[(df["_pct"].abs() >= 3) & (df["_mcap"] >= 300)].copy()
+                if not caps.empty:
+                    caps = caps.sort_values("_mcap", ascending=False).head(16)
+                out = []
+                for _, row in caps.iterrows():
+                    out.append({
+                        "code": str(row[code_col]),
+                        "name": str(row[name_col]),
+                        "pct": round(float(row["_pct"]), 2),
+                        "mcap": round(float(row["_mcap"]), 0),
+                        "turnover": round(float(row["_turn"]), 2),
+                        "vol_ratio": round(float(row["_vol"]), 2),
+                    })
+                data["core_large_caps"] = out
+    except Exception:
+        pass
     return data
 
 
@@ -276,6 +334,11 @@ def _data_to_facts(data: dict) -> str:
     if data.get("lhb_top"):
         lhb_txt = "；".join(f"{x['name']}({x['code']}) 近一月上榜{x['times']}次/净买{x['net_buy']}亿" for x in data["lhb_top"])
         lines.append(f"【龙虎榜资金（近一月统计）】{lhb_txt}")
+    if data.get("core_large_caps"):
+        caps_txt = "；".join(
+            f"{c['name']}({c['code']}) {c['pct']}% 市值{c['mcap']:.0f}亿 换手{c['turnover']}% 量比{c['vol_ratio']}"
+            for c in data["core_large_caps"])
+        lines.append(f"【全市场核心大票（涨幅>3%且市值>300亿）】{caps_txt}")
     return "\n".join(lines) if lines else "（当日市场数据暂缺）"
 
 
@@ -283,7 +346,7 @@ def _data_to_facts(data: dict) -> str:
 _SYSTEM = (
     "你是一位实战派A股游资策略师，擅长情绪周期、连板梯队与主线轮动分析，深谙赵老哥、"
     "刺客等顶尖游资的交易哲学。你将收到今日真实市场数据，请撰写一份专业、犀利、可执行的"
-    "盘后复盘报告。必须完整输出全部九大板块，内容务必精炼有干货，切勿因篇幅过长导致中途截断。"
+    "盘后复盘报告。必须完整输出全部十一大板块，内容务必精炼有干货，切勿因篇幅过长导致中途截断。"
     "仅供研究，不构成投资建议。"
 )
 
@@ -305,7 +368,7 @@ def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
 
 {chart_note}
 
-== 结构（必须且仅有这九大板块，板块之间用 <hr class="divider"> 分隔）==
+== 结构（必须且仅有这十一大板块，板块之间用 <hr class="divider"> 分隔）==
 
 一、<h2>一、大盘总览</h2>
    - 用 <div class="stat-row"> 放多个 <div class="stat-box">（label/value/涨跌），含三大指数、成交额、涨停数、跌停数、涨跌比
@@ -346,15 +409,30 @@ def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
    - <h3>📋 预选标的与买点</h3> + <table class="plan-table">（标的/方向/买点/止损位）
    - <h3>⛔ 不做清单</h3> + <div class="card card-red"><ul>，用 <li class="nope"> 划掉，结尾强调「不符合计划坚决不做」
    - <h3>📐 仓位管理</h3> + <div class="card card-blue"><ul>
-   - 最后用 <div class="highlight-box" style="text-align:center;"> 给「一句话总结」
+
+十、<h2>十、主线深度复盘</h2>
+   - 用 <section class="mainline-section"> 包裹本板块全部内容
+   - 开头用 <blockquote> 说明：本模块不从每日荐股池取样，而是从全市场快照中筛选市值大、涨幅强、换手/量比有资金痕迹的核心大票，判断真正驱动盘面的主线
+   - 列出市场广度数据：上涨/下跌家数、涨停/跌停家数
+   - <h3>🔥 全市场核心大票热度</h3> + <table>（核心股/主线归属/当日涨幅/市值(亿)/换手/量比/量价信号）
+   - 量价信号列：量比>1.5 且涨幅>5% 标 🔥 放量上攻，量比<0.9 标 ➖ 平淡换手
+   - <h3>🔍 主线甄别深度复盘</h3>：对各主线分别从「资金/逻辑/标杆/次日信号」四维度做深度分析，给出盘面结构一句话概括
+   - <h3>次日生死信号</h3>：列出 3-5 条决定性观察点（如某标杆不破位/某板块必须表态/量能总量门槛）、不做清单
+
+十一、<h2>十一、全日复盘总结</h2>
+   - 用 <section class="final-summary-section"> 包裹本板块全部内容
+   - 这是全文压轴板块，必须由大模型基于以上所有分析做一次全面、深刻的「全日复盘总结」
+   - 内容需涵盖：今日盘面核心特征、主线地位确认、风险点、明日关键观察、策略总纲
+   - 用 <blockquote> 给出 2-3 条警句格言式的交易箴言
+   - 最后用 <p style="font-size:13px;color:#8b949e;"> 强调：以上内容仅供研究交流，不构成任何投资建议
 
 == 样式规则 ==
-- 只能使用骨架已定义的 CSS 类：card, card-gold, card-red, card-green, card-blue, card-purple, tag, tag-red, tag-green, tag-blue, tag-gold, tag-purple, stat-row, stat-box, label, value, table/th/td, red, green, gold, blue, dim, big-num, highlight-box, warn-box, divider, plan-table, nope, strength-bar, s1~s5
+- 只能使用骨架已定义的 CSS 类：card, card-gold, card-red, card-green, card-blue, card-purple, tag, tag-red, tag-green, tag-blue, tag-gold, tag-purple, stat-row, stat-box, label, value, table/th/td, red, green, gold, blue, dim, big-num, highlight-box, warn-box, divider, plan-table, nope, strength-bar, s1~s5, mainline-section, final-summary-section
 - 强度/封板质量必须写成「徽章」：<span class="strength-bar s5">极强</span>，文字放在 span 内部作为标签。等级映射固定为：s5=极强、s4=强、s3=中等、s2=偏弱、s1=弱。严禁让文字溢出或在 span 外另写文字。
 - A股习惯「红涨绿跌」：上涨/涨停/利好用 class="red"，下跌/跌停/利空用 class="green"
 - 严禁输出 <html>、<head>、<body>、<style> 标签，严禁使用 markdown 代码围栏（```），直接输出 HTML 片段
 - 优先使用上面提供的真实数据；数据缺失维度（如部分涨停逻辑、催化剂、外盘）可基于板块特征与常识做合理定性分析，但不要编造精确数字
-- 必须输出完整九大板块，宁可每段精炼也要写全，禁止中途截断
+- 必须输出完整十一大板块，宁可每段精炼也要写全，禁止中途截断
 """
 
 
@@ -370,7 +448,7 @@ def _clean_llm_html(text: str) -> str:
 
 
 def _build_body_with_llm(llm, facts: str, custom: str, chart_svg: str) -> str:
-    content = llm.chat(_SYSTEM, _build_user_prompt(facts, custom, bool(chart_svg)), max_tokens=8000)
+    content = llm.chat(_SYSTEM, _build_user_prompt(facts, custom, bool(chart_svg)), max_tokens=12000)
     if not content or content.startswith("[LLM"):
         raise RuntimeError(content or "LLM 返回为空")
     body = _clean_llm_html(content)

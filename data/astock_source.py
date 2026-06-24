@@ -427,12 +427,17 @@ class ASDataSource:
             "sh000300": "沪深300",
             "sh000688": "科创50",
         }
-        rows = _tencent_market_snapshot(list(index_codes.keys()))  # 直接返回列表
-        if not rows:
+        # 直接请求指数（代码已有 sh/sz 前缀）
+        resp = _tencent_get(
+            "https://qt.gtimg.cn/",
+            params={"q": ",".join(index_codes.keys())})
+        if not resp:
             return []
+        rows = _parse_tencent_snapshot(resp.text)
         out = []
         for r in rows:
-            name = index_codes.get(f"sh{r['代码']}", index_codes.get(f"sz{r['代码']}", ""))
+            code = r.get("代码", "")
+            name = index_codes.get(f"sh{code}", index_codes.get(f"sz{code}", ""))
             if name:
                 out.append({
                     "name": name,
@@ -568,10 +573,10 @@ class ASDataSource:
 
     # ---------- 板块/热点（优先东财，失败自聚合）----------
     def get_hot_sectors(self, limit: int = 10) -> list[dict]:
-        """行业板块涨幅榜：东财直连 → 自聚合兜底。"""
+        """行业板块涨幅榜：东财直连（3s超时）→ 自聚合兜底。"""
 
         def _fetch():
-            # 优先东财（字段全：涨幅/领涨股/板块名）
+            # 优先东财（短超时，快速降级）
             try:
                 params = {
                     "pn": 1, "pz": limit,
@@ -581,7 +586,8 @@ class ASDataSource:
                     "fid": "f3", "fs": "m:90+t:2",
                     "fields": "f12,f14,f3,f128,f4",
                 }
-                js = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=params)
+                js = _em_get("https://push2.eastmoney.com/api/qt/clist/get",
+                             params=params, timeout=5)
                 if js:
                     items = (js.get("data") or {}).get("diff") or []
                     if isinstance(items, dict):
@@ -604,59 +610,58 @@ class ASDataSource:
         return out or []
 
     def get_board_cons(self, board_name: str, board_type: str = "行业") -> list[dict]:
-        """板块成分股（东财直连）。board_type: '行业' | '概念'。"""
+        """板块成分股（东财直连，短超时快速降级）。"""
         key = f"as_board_cons:{board_type}:{board_name}"
 
         def _fetch():
-            # 先搜板块代码
-            search_params = {
-                "pn": 1, "pz": 5,
-                "po": 1, "np": 1,
-                "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-                "fltt": 2, "invt": 2,
-                "fid": "f3",
-                "fs": "m:90+t:2" if board_type == "行业" else "m:90+t:3",
-                "fields": "f12,f14",
-                "f4": board_name,
-            }
-            # 尝试用名称搜索
-            js = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=search_params)
-            if not js:
-                return None
-            items = (js.get("data") or {}).get("diff") or []
-            if isinstance(items, dict):
-                items = list(items.values())
-            if not items:
-                return None
-            bk_code = str(items[0].get("f12", ""))
-            if not bk_code:
-                return None
+            try:
+                # 先搜板块代码
+                search_params = {
+                    "pn": 1, "pz": 5, "po": 1, "np": 1,
+                    "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+                    "fltt": 2, "invt": 2, "fid": "f3",
+                    "fs": "m:90+t:2" if board_type == "行业" else "m:90+t:3",
+                    "fields": "f12,f14", "f4": board_name,
+                }
+                js = _em_get("https://push2.eastmoney.com/api/qt/clist/get",
+                             params=search_params, timeout=5)
+                if not js:
+                    return None
+                items = (js.get("data") or {}).get("diff") or []
+                if isinstance(items, dict):
+                    items = list(items.values())
+                if not items:
+                    return None
+                bk_code = str(items[0].get("f12", ""))
+                if not bk_code:
+                    return None
 
-            # 取成分股
-            cons_params = {
-                "pn": 1, "pz": 200,
-                "po": 1, "np": 1,
-                "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-                "fltt": 2, "invt": 2,
-                "fid": "f3",
-                "fs": f"b:{bk_code}+f:!200",
-                "fields": "f12,f14,f3,f20",
-            }
-            js2 = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=cons_params)
-            if not js2:
+                # 取成分股
+                cons_params = {
+                    "pn": 1, "pz": 200, "po": 1, "np": 1,
+                    "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+                    "fltt": 2, "invt": 2, "fid": "f3",
+                    "fs": f"b:{bk_code}+f:!200",
+                    "fields": "f12,f14,f3,f20",
+                }
+                js2 = _em_get("https://push2.eastmoney.com/api/qt/clist/get",
+                              params=cons_params, timeout=5)
+                if not js2:
+                    return None
+                cons_items = (js2.get("data") or {}).get("diff") or []
+                if isinstance(cons_items, dict):
+                    cons_items = list(cons_items.values())
+                out = []
+                for d in cons_items:
+                    out.append({
+                        "代码": str(d.get("f12", "")).zfill(6),
+                        "名称": str(d.get("f14", "")),
+                        "涨跌幅": _safe_float(d.get("f3")),
+                        "总市值": _safe_float(d.get("f20")),
+                    })
+                return out or None
+            except Exception:
                 return None
-            cons_items = (js2.get("data") or {}).get("diff") or []
-            if isinstance(cons_items, dict):
-                cons_items = list(cons_items.values())
-            out = []
-            for d in cons_items:
-                out.append({
-                    "代码": str(d.get("f12", "")).zfill(6),
-                    "名称": str(d.get("f14", "")),
-                    "涨跌幅": _safe_float(d.get("f3")),
-                    "总市值": _safe_float(d.get("f20")),
-                })
-            return out or None
 
         return cached_call(key, _fetch, ttl=21600) or []
 
@@ -701,122 +706,145 @@ class ASDataSource:
 
         return cached_call(key, _fetch, ttl=3600) or {}
 
-    # ---------- 龙虎榜 ----------
+    # ---------- 龙虎榜（新浪财经）----------
     def get_lhb_map(self) -> dict:
-        """近一月龙虎榜统计 {代码: {次数, 净买额}}。"""
+        """近一月龙虎榜统计 {代码: {次数, 净买额, last_date}}。
+        优先东财直连，不可用时自动降级新浪财经。"""
 
         def _fetch():
-            params = {
-                "pn": 1, "pz": 500,
-                "po": 1, "np": 1,
-                "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-                "fltt": 2, "invt": 2,
-                "fid": "f184", "fs": "m:0+t:4",
-                "fields": "f12,f61,f184,f66",
-            }
-            js = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=params)
-            if not js:
-                return None
-            items = (js.get("data") or {}).get("diff") or []
-            if isinstance(items, dict):
-                items = list(items.values())
-            out = {}
-            for d in items:
-                code = str(d.get("f12", "")).zfill(6)
-                out[code] = {
-                    "times": int(_safe_float(d.get("f61")) or 0),
-                    "net_buy": _safe_float(d.get("f184")) or 0.0,
-                    "last_date": str(d.get("f66", "")),
+            # 主源：东财直连（数据最全）
+            try:
+                params = {
+                    "pn": 1, "pz": 500,
+                    "po": 1, "np": 1,
+                    "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+                    "fltt": 2, "invt": 2,
+                    "fid": "f184", "fs": "m:0+t:4",
+                    "fields": "f12,f61,f184,f66",
                 }
-            return out or None
+                js = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=params)
+                if js:
+                    items = (js.get("data") or {}).get("diff") or []
+                    if isinstance(items, dict):
+                        items = list(items.values())
+                    if items:
+                        out = {}
+                        for d in items:
+                            code = str(d.get("f12", "")).zfill(6)
+                            out[code] = {
+                                "times": int(_safe_float(d.get("f61")) or 0),
+                                "net_buy": _safe_float(d.get("f184")) or 0.0,
+                                "last_date": str(d.get("f66", "")),
+                            }
+                        return out
+            except Exception:
+                pass
+
+            # 兜底：新浪财经龙虎榜（HTML表格解析）
+            try:
+                resp = _tencent_get(
+                    "https://vip.stock.finance.sina.com.cn/q/go.php/vLHBData/kind/ggtj/index.phtml",
+                    params={"p": 1})
+                if not resp:
+                    return None
+                # 解析HTML表格：代码/名称/次数/成交额(万)/买入(万)/卖出(万)/净买(万)/?
+                rows_data = re.findall(r'<tr[^>]*>(.*?)</tr>', resp.text, re.DOTALL)
+                out = {}
+                for row_html in rows_data[1:]:  # 跳过表头
+                    cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+                    clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+                    if len(clean) < 7:
+                        continue
+                    code = clean[0].strip().zfill(6)
+                    if not code.isdigit() or len(code) != 6:
+                        continue
+                    net_buy_wan = _safe_float(clean[6]) or 0.0
+                    out[code] = {
+                        "times": int(clean[2]) if clean[2].isdigit() else 1,
+                        "net_buy": net_buy_wan * 10000 if net_buy_wan else 0.0,  # 万元→元
+                        "last_date": "",
+                    }
+                if out:
+                    print(f"[新浪] 龙虎榜获取成功，{len(out)}只")
+                    return out
+            except Exception as e:
+                print(f"[新浪] 龙虎榜解析失败: {e}")
+
+            return None
 
         return cached_call("as_lhb_map", _fetch, ttl=3600) or {}
 
-    # ---------- 新闻 ----------
+    # ---------- 新闻（东财 → 新浪兜底）----------
     def get_news(self, symbol: str, limit: int = 8) -> list[dict]:
-        """个股新闻（东财直连）。"""
+        """个股新闻。优先东财直连，不可用降级新浪搜索。"""
         symbol = str(symbol).strip().zfill(6)
         key = f"as_news:{symbol}:{limit}"
 
         def _fetch():
-            params = {
-                "cb": "jQuery",
-                "code": ("SH" if symbol.startswith("6") else "SZ") + symbol,
-                "pageIndex": 1,
-                "pageSize": limit,
-                "rt": str(int(time.time() * 1000)),
-            }
+            # 主源：东财直连
             try:
+                params = {
+                    "cb": "jQuery",
+                    "code": ("SH" if symbol.startswith("6") else "SZ") + symbol,
+                    "pageIndex": 1,
+                    "pageSize": limit,
+                    "rt": str(int(time.time() * 1000)),
+                }
                 resp = _em_session().get(
                     "https://np-weblist.eastmoney.com/comm/web/getFastNewsList",
                     params=params, timeout=10)
-                if resp.status_code != 200:
-                    return []
-                # 返回是 JSONP 格式
-                text = resp.text
-                m = re.search(r'\((\{.*\})\)', text, re.DOTALL)
-                if not m:
-                    return []
-                data = json.loads(m.group(1))
-                items = data.get("data", {}).get("list", []) or data.get("data", {}).get("fastNewsList", []) or []
-                out = []
-                for item in items:
-                    title = item.get("title", "") or item.get("Title", "")
-                    if not title:
-                        continue
-                    out.append({
-                        "title": title,
-                        "time": str(item.get("showTime", "") or item.get("ShowTime", "")),
-                    })
-                return out[:limit]
+                if resp.status_code == 200:
+                    text = resp.text
+                    m = re.search(r'\((\{.*\})\)', text, re.DOTALL)
+                    if m:
+                        data = json.loads(m.group(1))
+                        items = data.get("data", {}).get("list", []) or data.get("data", {}).get("fastNewsList", []) or []
+                        if items:
+                            out = []
+                            for item in items:
+                                title = item.get("title", "") or item.get("Title", "")
+                                if not title:
+                                    continue
+                                out.append({
+                                    "title": title,
+                                    "time": str(item.get("showTime", "") or item.get("ShowTime", "")),
+                                })
+                            return out[:limit]
             except Exception:
-                return []
+                pass
+
+            # 兜底：新浪股票资讯搜索
+            try:
+                name = self.get_name(symbol)
+                keyword = name or symbol
+                resp = _tencent_get(
+                    "https://feed.mix.sina.com.cn/api/roll/get",
+                    params={
+                        "pageid": 155, "lid": "2509,2510,2511",
+                        "k": keyword, "num": limit, "page": 1,
+                    })
+                if resp:
+                    data = resp.json()
+                    items = data.get("result", {}).get("data", [])
+                    if items:
+                        out = []
+                        for item in items:
+                            out.append({
+                                "title": item.get("title", ""),
+                                "time": str(item.get("ctime", "")),
+                            })
+                        return out[:limit]
+            except Exception:
+                pass
+
+            return []
 
         return cached_call(key, _fetch, ttl=1800) or []
 
-    # ---------- 北向资金持股 ----------
+    # ---------- 北向资金持股（已废弃：东财不可达，暂无替代源）----------
     def get_north_hold(self, symbol: str) -> dict:
-        """个股北向资金持股（东财直连）。"""
-        symbol = str(symbol).strip().zfill(6)
-        market = 1 if symbol.startswith("6") else 0
-        key = f"as_north:{symbol}"
-
-        def _fetch():
-            params = {
-                "lmt": 10,
-                "klt": "1",
-                "secid": f"{market}.{symbol}",
-                "fields1": "f1,f2,f3,f7",
-                "fields2": "f51,f52",
-            }
-            # 使用港股通持股接口
-            js = _em_get(
-                "https://push2his.eastmoney.com/api/qt/stock/hkhold/chgday/get",
-                params=params)
-            if not js:
-                return {}
-            klines = (js.get("data") or {}).get("klines") or []
-            if not klines:
-                return {}
-            # 最新一条
-            last = klines[-1].split(",") if isinstance(klines[-1], str) else klines[-1]
-            if len(last) < 2:
-                return {}
-            ratio = _safe_float(last[1])  # 持股占比
-            trend = None
-            if len(klines) >= 6:
-                prev = klines[-6].split(",") if isinstance(klines[-6], str) else klines[-6]
-                if len(prev) >= 2:
-                    prev_ratio = _safe_float(prev[1])
-                    if prev_ratio is not None and ratio is not None:
-                        trend = round(ratio - prev_ratio, 3)
-            return {
-                "ratio": ratio,
-                "market_cap": None,
-                "trend_5d": trend,
-            }
-
-        return cached_call(key, _fetch, ttl=86400) or {}
+        """个股北向资金持股。当前东财不可达，标记废弃，返回空。"""
+        return {}
 
     # ---------- 板块热度榜（近一周）----------
     def get_hot_sectors_week(self, top: int = 12) -> list[dict]:
