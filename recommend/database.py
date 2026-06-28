@@ -304,6 +304,19 @@ class RecommendDB:
             row = c.execute(sql, args).fetchone()
         return dict(row) if row else None
 
+    def recent_winrates(self, n: int = 5, before: Optional[str] = None) -> list[dict]:
+        """获取最近 N 批次的胜率记录（用于滚动窗口评估）。"""
+        sql = "SELECT * FROM daily_winrate"
+        args: tuple = ()
+        if before:
+            sql += " WHERE base_date < ?"
+            args = (before,)
+        sql += " ORDER BY base_date DESC LIMIT ?"
+        args += (n,)
+        with self._conn() as c:
+            rows = c.execute(sql, args).fetchall()
+        return [dict(r) for r in reversed(rows)]  # 按日期升序
+
     def winrate_history(self, limit: int = 30) -> list[dict]:
         with self._conn() as c:
             rows = c.execute(

@@ -152,6 +152,16 @@ class AgentOrchestrator:
         return round(pts / n, 1) if n else 50.0
 
     @staticmethod
+    def _get_thermometer(fetcher, symbol: str, fund_flow: dict) -> dict:
+        """计算情绪温度计。"""
+        try:
+            from agents.sentiment_thermometer import compute_sentiment_thermometer
+            return compute_sentiment_thermometer(fetcher, symbol, fund_flow=fund_flow)
+        except Exception as e:
+            return {"score": 50, "label": "正常", "emoji": "🌡️", "error": str(e),
+                    "dimensions": {}, "summary": f"温度计计算异常: {e}"}
+
+    @staticmethod
     def _verdict(overall: float) -> dict:
         """综合评分 -> 结论分档（参考 UZI 阈值 80/65/50/35）。"""
         if overall >= 80:
@@ -204,10 +214,59 @@ class AgentOrchestrator:
         except Exception as e:
             channel_research = {"available": False, "summary": f"产业链线索自动检索失败: {e}"}
 
-        # 综合评分 = 基本面 ×0.6 + 评委共识 ×0.4，并给出结论分档
+        # ============ 🆕 价值挖掘三模块 ============
+        # 1) 财报深度拆解 + 个股分级（纯规则，秒级）
+        from agents.financial_dissect import dissect_financials
+        try:
+            financial_dissect = dissect_financials(
+                self.fetcher, symbol, name=ctx.name, llm=self.llm)
+        except Exception as e:
+            financial_dissect = {"available": False, "error": str(e)}
+
+        # 2) 卡点审计：三问验证（LLM可选，无LLM时规则兜底）
+        from agents.bottleneck_audit import audit_bottleneck
+        try:
+            bottleneck = audit_bottleneck(
+                self.fetcher, symbol, name=ctx.name,
+                channel_research=channel_research, llm=self.llm)
+        except Exception as e:
+            bottleneck = {"available": False, "error": str(e)}
+
+        # 3) 风险证伪：18 项反向检查（纯规则，秒级）
+        from agents.risk_falsify import falsify_risks
+        try:
+            risk_falsify = falsify_risks(
+                symbol, dissect=financial_dissect,
+                channel_research=channel_research, bottleneck=bottleneck,
+                valuation_metrics=metrics)
+        except Exception as e:
+            risk_falsify = {"available": False, "error": str(e)}
+        # ============ 价值挖掘三模块结束 ============
+
+        # 综合评分（增强版）：五维加权 + 风险罚分
         fund_score = self._fund_score(scorecard)
         consensus = jury.get("consensus", 50.0)
-        overall = round(fund_score * 0.6 + consensus * 0.4, 1)
+        grade_score = financial_dissect.get("grading_score", 50)
+        match_score = bottleneck.get("match_score", 50)
+
+        # 风险罚分
+        risk_penalty = 0
+        risk_level = risk_falsify.get("overall_risk", "low")
+        if risk_level == "critical":
+            risk_penalty = -15
+        elif risk_level == "high":
+            risk_penalty = -8
+        elif risk_level == "medium":
+            risk_penalty = -3
+
+        overall = round(
+            fund_score * 0.30 +         # 基本面评分卡（降权）
+            consensus * 0.20 +           # 评委共识（降权）
+            grade_score * 0.20 +        # 🆕 财报分级
+            match_score * 0.25 +         # 🆕 业务匹配度
+            risk_penalty,                # 🆕 风险罚分
+            1)
+        overall = max(0, min(100, overall))
         verdict = self._verdict(overall)
 
         result = {
@@ -221,9 +280,16 @@ class AgentOrchestrator:
             "valuation": valuation,
             "earnings_forecast": earnings,
             "channel_research": channel_research,
+            "financial_dissect": financial_dissect,   # 🆕
+            "bottleneck_audit": bottleneck,            # 🆕
+            "risk_falsify": risk_falsify,              # 🆕
+            "sentiment_thermometer": AgentOrchestrator._get_thermometer(self.fetcher, symbol, ctx.fund_flow),  # 🆕
             "overall_score": overall,
             "fund_score": fund_score,
             "consensus_score": consensus,
+            "grade_score": grade_score,                # 🆕
+            "match_score": match_score,                # 🆕
+            "risk_level": risk_level,                  # 🆕
             "verdict": verdict,
             "llm_enabled": self.llm.available,
         }

@@ -848,13 +848,13 @@ class ASDataSource:
 
     # ---------- 板块热度榜（近一周）----------
     def get_hot_sectors_week(self, top: int = 12) -> list[dict]:
-        """近一周板块热度榜：东财直连 → 自聚合兜底。
+        """近一周板块热度榜：东财直连（3s超时）→ 自聚合兜底。
 
         兜底时 week_pct 用当日涨幅近似（腾讯无历史板块数据）。
         """
 
         def _fetch():
-            # 优先东财（有近一周历史累计涨幅）
+            # 优先东财（短超时快速降级）
             try:
                 rows = []
                 for fs_type in ["m:90+t:2", "m:90+t:3"]:
@@ -866,7 +866,8 @@ class ASDataSource:
                         "fid": "f3", "fs": fs_type,
                         "fields": "f12,f14,f3,f128",
                     }
-                    js = _em_get("https://push2.eastmoney.com/api/qt/clist/get", params=params)
+                    js = _em_get("https://push2.eastmoney.com/api/qt/clist/get",
+                                 params=params, timeout=3)
                     if not js:
                         continue
                     items = (js.get("data") or {}).get("diff") or []
@@ -883,7 +884,8 @@ class ASDataSource:
                                     params={"lmt": 10, "klt": "101",
                                             "secid": f"90.{bk_code}",
                                             "fields1": "f1,f2,f3,f7",
-                                            "fields2": "f51,f52,f53,f54,f55,f56,f57"})
+                                            "fields2": "f51,f52,f53,f54,f55,f56,f57"},
+                                    timeout=3)
                                 if hist_js:
                                     klines = (hist_js.get("data") or {}).get("klines") or []
                                     if len(klines) >= 2:

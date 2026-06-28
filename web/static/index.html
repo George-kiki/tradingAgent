@@ -329,6 +329,72 @@
   .bt-day-header:hover{filter:brightness(1.3)}
   .bt-toggle-all{background:rgba(59,130,246,.2);border:1px solid var(--line);color:var(--accent);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:12px}
   .bt-toggle-all:hover{background:rgba(59,130,246,.35)}
+  /* 多日对比分析 */
+  .compare-panel{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
+  .compare-panel .sec-title{font-size:15px;font-weight:700;color:var(--accent2);margin-bottom:12px}
+  .range-switch{display:flex;gap:10px;margin-bottom:14px}
+  .range-btn{padding:6px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--sub);cursor:pointer;font-size:13px;transition:.2s}
+  .range-btn.active{background:var(--accent);color:#fff;border-color:var(--accent2)}
+  .range-btn:hover:not(.active){border-color:var(--accent2);color:var(--txt)}
+  .date-picker-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .date-card{width:90px;padding:10px 8px;border-radius:10px;border:2px solid var(--line);background:var(--panel);cursor:pointer;text-align:center;transition:.2s;position:relative}
+  .date-card:hover:not(.disabled){border-color:var(--accent2);transform:translateY(-1px)}
+  .date-card.checked{border-color:#58a6ff;background:rgba(88,166,255,.12);box-shadow:0 0 12px rgba(88,166,255,.15)}
+  .date-card.disabled{opacity:.35;cursor:not-allowed;filter:grayscale(.5)}
+  .date-card .date-label{font-size:16px;font-weight:700;margin-bottom:4px}
+  .date-card.checked .date-label{color:#58a6ff}
+  .date-card .date-info{font-size:10px;color:var(--sub);line-height:1.4}
+  .date-card .check-icon{display:none;font-size:12px;color:#58a6ff;position:absolute;top:4px;right:6px}
+  .date-card.checked .check-icon{display:block}
+  .date-card .lock-icon{font-size:14px;color:var(--sub);margin-top:2px}
+  .ct-chart{height:350px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:10px 0}
+  .ct-chart-sm{height:280px}
+  .ct-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .ct-compare-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px}
+  .ct-block{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .ct-block h3{font-size:13px;color:var(--accent2);margin-bottom:10px}
+  .ct-block .item{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;display:flex;justify-content:space-between}
+  .ct-block .item .nm{font-weight:600}
+  .ct-block .item .sc{color:var(--gold);font-weight:700}
+  .ct-block .item .sd{color:var(--sub);font-size:11px}
+  .ct-summary{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:12px}
+  .ct-summary .ct-text{font-size:13px;line-height:1.8;color:var(--txt)}
+  .ct-summary .ct-gen{font-size:10px;color:var(--sub);margin-top:8px;text-align:right}
+  .ct-summary .ct-high{color:var(--green);font-size:12px;line-height:1.8}
+  .ct-summary .ct-risk{color:var(--red);font-size:12px;line-height:1.8}
+  .ct-keywords{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .ct-kw{font-size:11px;padding:3px 10px;border-radius:12px;background:rgba(59,130,246,.12);color:var(--accent2)}
+  .ct-kw2{background:rgba(240,180,41,.12);color:var(--gold)}
+  /* 多选下拉框 */
+  .multi-select-wrap{position:relative;width:100%;max-width:520px}
+  .multi-select-trigger{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer;font-size:14px;color:var(--txt);transition:.2s;min-height:44px}
+  .multi-select-trigger:hover{border-color:var(--accent2)}
+  .multi-select-trigger.open{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,.15)}
+  .multi-select-tags{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+  .multi-select-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.3);border-radius:16px;font-size:12px;color:#58a6ff;font-weight:600}
+  .multi-select-tag .tag-close{margin-left:2px;cursor:pointer;font-size:14px;opacity:.7}
+  .multi-select-tag .tag-close:hover{opacity:1}
+  .multi-select-placeholder{color:var(--sub);font-size:13px}
+  .multi-select-arrow{font-size:12px;color:var(--sub);transition:.2s;margin-left:8px}
+  .multi-select-trigger.open .multi-select-arrow{transform:rotate(180deg)}
+  .multi-select-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;z-index:100;max-height:260px;overflow-y:auto;box-shadow:var(--shadow);display:none}
+  .multi-select-dropdown.show{display:block}
+  .multi-select-opt{padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;transition:.15s;border-bottom:1px solid rgba(255,255,255,.03)}
+  .multi-select-opt:hover{background:rgba(59,130,246,.1)}
+  .multi-select-opt.selected{background:rgba(88,166,255,.08)}
+  .multi-select-opt .opt-check{width:18px;height:18px;border:2px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:.15s;font-size:11px;color:transparent}
+  .multi-select-opt.selected .opt-check{background:var(--accent);border-color:var(--accent);color:#fff}
+  .multi-select-opt .opt-label{flex:1;font-weight:500}
+  .multi-select-opt .opt-meta{font-size:11px;color:var(--sub)}
+  .multi-select-opt.disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+  .multi-select-actions{display:flex;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,.05);position:sticky;bottom:0;background:var(--panel2)}
+  .multi-select-actions button{padding:5px 14px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--sub);font-size:12px;cursor:pointer;transition:.15s}
+  .multi-select-actions button:hover{border-color:var(--accent2);color:var(--txt)}
+  .multi-select-actions button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .multi-select-actions button.primary:hover{background:var(--accent2)}
+  @media(max-width:768px){
+    .ct-grid2,.ct-compare-grid{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
@@ -340,6 +406,7 @@
 <div class="container">
   <div class="tabs">
     <div class="tab active" data-tab="analyze">🤖 智能分析</div>
+    <div class="tab" data-tab="realtime">📊 实时分析</div>
     <div class="tab" data-tab="kline">📉 K线图表</div>
     <div class="tab" data-tab="backtest">📈 策略回测</div>
     <div class="tab" data-tab="select">🎯 量化选股</div>
@@ -348,8 +415,24 @@
     <div class="tab" data-tab="recommend">📌 每日荐股</div>
     <div class="tab" data-tab="tail-recommend">🕝 尾盘荐股</div>
     <div class="tab" data-tab="tailpick">🌙 尾盘选股</div>
+    <div class="tab" data-tab="fugupan">🧠 复盘哥</div>
+    <div class="tab" data-tab="news-driven">🌍 热点驱动</div>
     <div class="tab" data-tab="review">📋 盘后复盘</div>
     <div class="tab" data-tab="strategies">📚 策略库</div>
+  </div>
+
+  <!-- 实时分析 -->
+  <div class="panel" id="p-realtime">
+    <div class="row">
+      <input id="rt-symbol" placeholder="股票代码，如 600519" value="600519">
+      <button onclick="doRealtime()" style="background:linear-gradient(135deg,#0ecb81,#3fb950);color:#000;font-weight:700">📊 实时分析</button>
+      <span class="hint">均线破位判断 · 主力筹码 · 缩量状态 · 实时走势</span>
+    </div>
+    <div id="rt-export-wrap">
+      <div id="rt-board"></div>
+      <div id="rt-chart" class="chart-box" style="width:100%;height:340px;margin-bottom:16px"></div>
+      <div id="rt-result"></div>
+    </div>
   </div>
 
   <!-- 智能分析 -->
@@ -359,7 +442,9 @@
       <button onclick="doAnalyze()">开始分析</button>
       <span class="hint">K线图 + 多智能体（技术/基本面/舆情/产业链线索自动检索 + 多空辩论 + 风控 + 决策）一体化呈现</span>
     </div>
-    <div id="a-result"></div>
+    <div id="a-export-wrap">
+      <div id="a-result"></div>
+    </div>
   </div>
 
   <!-- K线图表 -->
@@ -450,7 +535,9 @@
       <button onclick="loadValueDates()" style="background:var(--panel2)">刷新</button>
       <span class="hint">产业瓶颈逆向工程 → 隐形冠军 → 财务拐点(真实毛利率/CapEx) → 红队证伪 → 6个月可证伪里程碑熔断</span>
     </div>
-    <div id="v-result"></div>
+    <div id="v-export-wrap">
+      <div id="v-result"></div>
+    </div>
   </div>
 
   <!-- 每日荐股 -->
@@ -465,6 +552,9 @@
       <span class="btn-tip-wrap" id="rc-regen-wrap" title="每日 18:30 后才可使用，等待收盘后完整行情、资金流和龙虎榜数据。">
         <button id="rc-regen-btn" onclick="doRecommend(true)" style="background:var(--gold);color:#000">重新生成（结算+反思+选股）</button>
       </span>
+      <span class="btn-tip-wrap" id="rc-pipeline-wrap">
+        <button id="rc-pipeline-btn" onclick="doLLMPipeline()" style="background:var(--accent)">🤖 LLM两阶段选股</button>
+      </span>
       <span class="hint" id="rc-regen-tip"></span>
       <label class="hint" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer">
         <input type="checkbox" id="rc-fib50"> 仅回踩黄金50%
@@ -478,8 +568,10 @@
       <button onclick="loadHistoryDates()" style="background:var(--panel2)">刷新列表</button>
       <span class="hint">基于今日收盘后完整数据选次日票｜18:30 后开放重新生成｜昨日胜率&lt;70%自动反思迭代</span>
     </div>
-    <div id="rc-board"></div>
-    <div id="rc-result"></div>
+    <div id="rc-export-wrap">
+      <div id="rc-board"></div>
+      <div id="rc-result"></div>
+    </div>
     <!-- 历史回测 -->
     <div class="row" style="border-top:1px dashed var(--line);margin-top:20px;padding-top:14px">
       <span class="hint">📊 历史回测：</span>
@@ -507,8 +599,10 @@
       <button id="tr-run" onclick="doTailRecommend()" style="background:var(--gold);color:#000">🕝 生成尾盘荐股</button>
       <span class="hint">14:30 盘中推荐 · 10策略共识+8维基本面 · 今日尾盘买入 · 次日早盘验证</span>
     </div>
-    <div id="tr-board"></div>
-    <div id="tr-result"></div>
+    <div id="tr-export-wrap">
+      <div id="tr-board"></div>
+      <div id="tr-result"></div>
+    </div>
     <!-- 历史回测 -->
     <div class="row" style="border-top:1px dashed var(--line);margin-top:20px;padding-top:14px">
       <span class="hint">📊 历史回测：</span>
@@ -542,9 +636,99 @@
       <input id="tp-turnover" type="number" step="0.1" value="2" style="width:100px" title="最低换手率%">
       <label class="hint" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="tp-mainline"> 只看主线板块</label>
       <button id="tp-run" onclick="doTailPick()" style="background:var(--gold);color:#000">🌙 生成尾盘 Top5</button>
-      <span class="hint">13:00-15:00 短线策略：今日尾盘买入，明日早盘卖出；硬过滤涨幅≤6%</span>
+      <button onclick="doTailPickV2()" style="background:var(--accent)">🆕 专属引擎·午后动量</button>
+      <button onclick="doTailPickAI()" style="background:linear-gradient(135deg,#58a6ff,#3fb950);color:#000;font-weight:700">🤖 AI协同·四层智能</button>
+      <span class="hint">v1=通用框架 | v2=午后动量+VWAP+抢筹 | v3=LLM+ML四层AI（市场感知+拉升预测+审查+风控）</span>
     </div>
-    <div id="tp-result"></div>
+    <div id="tp-export-wrap">
+      <div id="tp-result"></div>
+    </div>
+  </div>
+
+  <!-- 复盘哥选股（三维共振）-->
+  <div class="panel" id="p-fugupan">
+    <div class="row">
+      <button onclick="doFugupan()" style="background:linear-gradient(135deg,#f0b429,#ff8c00);color:#000;font-weight:700">🧠 复盘哥 · 三维共振选股</button>
+      <span class="hint">情绪周期(天时) + 题材主线(人和) + 龙头身位/K线形态(地利) · 养家心法+情绪流龙头+周期实战</span>
+    </div>
+    <div id="fg-export-wrap">
+      <div id="fg-board"></div>
+      <div id="fg-result"></div>
+    </div>
+  </div>
+
+  <!-- 热点驱动 -->
+  <div class="panel" id="p-news-driven">
+    <div class="row">
+      <button onclick="doNewsDriven(false)" style="background:linear-gradient(135deg,#3b82f6,#a78bfa);color:#fff;font-weight:700">🌍 读取最新分析</button>
+      <button onclick="doNewsDriven(true)" style="background:var(--gold);color:#000;font-weight:700">⚡ 强制重新扫描</button>
+      <span class="hint">全球热点→过滤Agent→多分析师协作→板块利好映射 · 每12小时自动执行</span>
+    </div>
+    <div id="nd-export-wrap">
+      <div id="nd-board"></div>
+      <div id="nd-result"></div>
+    </div>
+
+    <!-- 多日对比分析 -->
+    <div class="compare-panel" id="nd-compare-panel">
+      <div class="sec-title">📅 多日对比分析</div>
+
+      <!-- 范围切换 -->
+      <div class="range-switch">
+        <button class="range-btn active" onclick="switchRange('3d',this)">📅 近三日(默认)</button>
+        <button class="range-btn" onclick="switchRange('all',this)">🔧 自定义范围</button>
+      </div>
+
+      <!-- 多选下拉日期选择器 -->
+      <div class="multi-select-wrap" id="nd-ms-wrap">
+        <div class="multi-select-trigger" id="nd-ms-trigger" onclick="toggleMultiSelect()">
+          <div class="multi-select-tags" id="nd-ms-tags">
+            <span class="multi-select-placeholder">请选择日期（至少2天）</span>
+          </div>
+          <span class="multi-select-arrow">▼</span>
+        </div>
+        <div class="multi-select-dropdown" id="nd-ms-dropdown">
+          <div id="nd-ms-options"></div>
+          <div class="multi-select-actions">
+            <button onclick="clearMultiSelect()">清除</button>
+            <button class="primary" onclick="confirmMultiSelect()">📊 开始对比分析</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button onclick="confirmMultiSelect()" id="btn-compare">📊 规则对比</button>
+        <button onclick="doLLMCompare()" id="btn-compare-llm" style="display:none">🧠 AI深度总结</button>
+        <button onclick="exportComparePNG()" id="btn-compare-export" style="display:none">📥 导出PNG</button>
+      </div>
+      <div id="nd-compare-hint" class="hint" style="margin-bottom:8px"></div>
+
+      <!-- 结果区 -->
+      <div id="nd-compare-result" style="display:none">
+        <!-- 图表区 -->
+        <div class="ct-grid2">
+          <div class="ct-chart" id="ct-trend-chart"></div>
+          <div class="ct-chart ct-chart-sm" id="ct-heatmap-chart"></div>
+        </div>
+        <div class="ct-chart" id="ct-metric-chart"></div>
+
+        <!-- 对比卡片 -->
+        <div class="ct-compare-grid">
+          <div class="ct-block" id="ct-common-block">
+            <h3>🌐 共性板块</h3><div id="ct-common-list"></div>
+          </div>
+          <div class="ct-block" id="ct-unique-block">
+            <h3>⚡ 特异板块</h3><div id="ct-unique-list"></div>
+          </div>
+          <div class="ct-block" id="ct-keyword-block">
+            <h3>🔑 关键词</h3><div>共性:</div><div class="ct-keywords" id="ct-common-kws"></div>
+            <div style="margin-top:8px">分歧:</div><div class="ct-keywords" id="ct-diverge-kws"></div>
+          </div>
+        </div>
+
+        <!-- 总结 -->
+        <div class="ct-summary" id="ct-summary-box"></div>
+      </div>
+    </div>
   </div>
 
   <!-- 盘后复盘 -->
@@ -557,9 +741,10 @@
 
     <!-- 子页：今日复盘 -->
     <div class="rv-pane active" id="rv-today">
-      <div class="row">
+      <div class="row" style="align-items:center;gap:8px">
         <button onclick="doReview()">生成今日复盘</button>
-        <span class="hint">按 config/review.json 配置组装九大板块；生成后自动归档，可在「历史复盘」查看与导出</span>
+        <input id="rv-holdings" placeholder="持仓股代码, 逗号分隔: 600519,000858" style="flex:1;min-width:200px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:13px">
+        <span class="hint" style="white-space:nowrap">输入持仓股代码可额外生成持仓分析板块</span>
       </div>
       <div id="r-result"></div>
     </div>
@@ -615,6 +800,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 const api = (p)=>fetch(p).then(r=>r.json());
 async function apiWithTimeout(p, ms=180000){
@@ -627,13 +813,79 @@ const $ = (id)=>document.getElementById(id);
 const loading = (txt)=>`<div class="loading"><div class="spinner"></div>${txt||'分析中，请稍候...'}</div>`;
 const sigTag = (s)=>`<span class="tag ${s==='BUY'?'buy':s==='SELL'?'sell':'hold'}">${s}</span>`;
 
+// ===================== 通用导出图片 =====================
+async function exportModuleAsPNG(containerId, moduleName) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  // 先隐藏所有导出相关按钮，避免出现在截图里
+  const hiddenEls = [];
+  // 隐藏 export-btn-wrap 元素
+  el.querySelectorAll('.export-btn-wrap').forEach(b => { hiddenEls.push(b); b.style.display = 'none'; });
+  // 隐藏所有包含"导出"文字的按钮
+  el.querySelectorAll('button').forEach(btn => {
+    if (btn.textContent.includes('导出') && !hiddenEls.includes(btn)) {
+      hiddenEls.push(btn);
+      btn.style.display = 'none';
+    }
+  });
+
+  try {
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#0b0e14',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      allowTaint: true,
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${moduleName}_${today}.png`;
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png', 1.0);
+  } catch (e) {
+    console.error('导出失败:', e);
+    alert('导出图片失败，请重试。');
+  } finally {
+    hiddenEls.forEach(b => { b.style.display = ''; });
+  }
+}
+
+function injectExportButton(wrapId, moduleName) {
+  // 在导出容器顶部注入导出按钮
+  const wrap = document.getElementById(wrapId);
+  if (!wrap || wrap.querySelector('.export-btn-wrap')) return;
+  const btn = document.createElement('div');
+  btn.className = 'export-btn-wrap';
+  btn.style.cssText = 'text-align:right;margin-bottom:8px';
+  btn.innerHTML = `<button onclick="exportModuleAsPNG('${wrapId}','${moduleName}')"
+    style="background:var(--accent);color:#fff;font-weight:700;font-size:12px;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;opacity:0.9;transition:opacity .2s,transform .2s"
+    onmouseover="this.style.opacity='1';this.style.transform='scale(1.03)'"
+    onmouseout="this.style.opacity='0.9';this.style.transform='scale(1)'"
+  >📸 导出图片</button>`;
+  wrap.insertBefore(btn, wrap.firstChild);
+}
+
 // tab 切换
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
   $('p-'+t.dataset.tab).classList.add('active');
+  if(t.dataset.tab==='news-driven') initComparePanel();
 });
+
+// Toast 提示
+function showToast(msg){
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.85);color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;z-index:9999;animation:fadeInUp .3s';
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='.3s'; setTimeout(()=>t.remove(),300); }, 2500);
+}
 
 // 加载策略列表
 async function loadStrategies(){
@@ -823,6 +1075,120 @@ function renderChannelResearch(cr){
   return html;
 }
 
+// ============ 🆕 价值挖掘三模块 ============
+function renderFinancialDissect(fd){
+  if(!fd || !fd.available) return '';
+  const d = fd.dissect || {};
+  const mt = d.margin_trend || {};
+  const cf = d.cashflow_quality || {};
+  const dup = d.dupont_roic || {};
+  const bal = d.balance_health || {};
+  const gradeColors = {A:'#0ecb81', 'B+':'#3fb950', B:'#58a6ff', C:'#f0b90b', D:'#f6465d'};
+  const gc = gradeColors[fd.grading] || '#8b949e';
+
+  return `<div class="sec-title">📊 财报深度拆解 <span class="hint">证据等级：${fd.evidence_level||'A'}级 · ${fd.source||''}</span></div>
+  <div class="card" style="border-color:rgba(59,130,246,.35)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">DuPont ROIC 拆解</h3>
+      <span style="font-size:22px;font-weight:800;color:${gc}">${fd.grading||'?'}</span>
+    </div>
+    <table>
+      <tr><td>ROIC</td><td><b>${dup.roic!=null?dup.roic+'%':'—'}</b></td><td>ROE</td><td>${dup.roe!=null?dup.roe+'%':'—'}</td></tr>
+      <tr><td>净利率</td><td>${dup.net_margin!=null?dup.net_margin.toFixed(1)+'%':'—'}</td><td>资产周转率</td><td>${dup.asset_turnover!=null?dup.asset_turnover.toFixed(2):'—'}</td></tr>
+      <tr><td>权益乘数</td><td>${dup.equity_multiplier!=null?dup.equity_multiplier.toFixed(2):'—'}</td><td>现金流/净利润</td><td><span class="${cf.ocf_healthy?'up':'down'}">${cf.ocf_to_ni!=null?cf.ocf_to_ni.toFixed(2):'—'}</span></td></tr>
+      <tr><td>毛利率</td><td>${mt.gross_margin!=null?mt.gross_margin.toFixed(1)+'%':'—'} <span class="hint">同比${mt.gross_margin_trend||'—'}</span></td>
+      <td>资产负债率</td><td>${bal.debt_ratio!=null?bal.debt_ratio.toFixed(1)+'%':'—'} ${bal.debt_warning?'<span class="down">⚠高</span>':''}</td></tr>
+    </table>
+    <div class="analysis-muted" style="margin-top:8px">分级依据：${fd.grading_reason||'—'} · 数据期：${d.data_period||'—'}</div>
+  </div>`;
+}
+
+function renderBottleneckAudit(bt){
+  if(!bt || !bt.available) return '';
+  const ds = bt.demand_source || {};
+  const ca = bt.cycle_assessment || {};
+  const bp = bt.bottleneck_position || {};
+  const ms = bt.match_score || 50;
+  const msColor = ms>=80?'#0ecb81':ms>=60?'#58a6ff':ms>=40?'#f0b90b':'#f6465d';
+
+  return `<div class="sec-title">🔍 卡点审计（三问验证）<span class="hint">匹配度 <b style="color:${msColor}">${ms}/100</b> · 证据：${bt.evidence_level||'D'}级</span></div>
+  <div class="card" style="border-color:rgba(240,180,41,.35)">
+    <div style="display:flex;gap:12px;margin-bottom:10px">
+      <div style="flex:1;background:rgba(59,130,246,.06);border-radius:8px;padding:10px">
+        <b>Q1 需求来源</b><br>
+        <span style="font-size:13px">${ds.type||'—'}</span><br>
+        <span class="hint" style="font-size:11px">置信度：${ds.confidence!=null?(ds.confidence*100).toFixed(0)+'%':'—'} · ${ds.evidence_level||'?'}级</span>
+      </div>
+      <div style="flex:1;background:rgba(59,130,246,.06);border-radius:8px;padding:10px">
+        <b>Q2 周期判断</b><br>
+        <span style="font-size:13px">${ca.type||'—'} · ${ca.stage||'—'}</span><br>
+        <span class="hint" style="font-size:11px">置信度：${ca.confidence!=null?(ca.confidence*100).toFixed(0)+'%':'—'} · ${ca.evidence_level||'?'}级</span>
+      </div>
+      <div style="flex:1;background:rgba(59,130,246,.06);border-radius:8px;padding:10px">
+        <b>Q3 核心瓶颈</b><br>
+        <span style="font-size:13px">${bp.position||'—'}</span><br>
+        <span class="hint" style="font-size:11px">替代难度：${bp.substitutability||'—'} · ${bp.evidence_level||'?'}级</span>
+      </div>
+    </div>
+    ${bt.summary?`<div class="analysis-muted">💡 ${escapeHtml(bt.summary)}</div>`:''}
+  </div>`;
+}
+
+function renderRiskFalsify(rf){
+  if(!rf || !rf.available) return '';
+  const flags = rf.risk_flags || [];
+  const failFlags = flags.filter(f=>f.result==='fail');
+  const warnFlags = flags.filter(f=>f.result==='warn');
+  const riskColors = {low:'#0ecb81', medium:'#f0b90b', high:'#f6465d', critical:'#ff4444'};
+
+  return `<div class="sec-title">🛡️ 风险证伪检查 <span class="hint">${rf.pass_count||0}通过 / ${rf.warn_count||0}警示 / ${rf.fail_count||0}不通过 · 综合：<b style="color:${riskColors[rf.overall_risk]||'#888'}">${rf.overall_risk||'?'}</b></span></div>
+  <div class="card">
+    <table><tr><th>检查项</th><th>结果</th><th>说明</th><th>等级</th></tr>
+    ${[...failFlags, ...warnFlags].slice(0,8).map(f=>`<tr>
+      <td>${f.item}</td>
+      <td><span class="${f.result==='fail'?'down':'hint'}">${f.result==='fail'?'❌不通过':'⚠警示'}</span></td>
+      <td class="hint" style="font-size:11px">${escapeHtml(f.detail||'').slice(0,60)}</td>
+      <td>${f.level}级</td>
+    </tr>`).join('')}
+    ${flags.length==0?'<tr><td colspan="4" class="hint">风险证伪数据待完善</td></tr>':''}
+    </table>
+  </div>`;
+}
+// ============ 价值挖掘三模块结束 ============
+
+// ============ 🌡️ 情绪温度计 ============
+function renderThermometerBlock(st){
+  if(!st || !st.dimensions || Object.keys(st.dimensions).length === 0) return '';
+  const dims = st.dimensions;
+  const sc = st.score>=80?'#f6465d':st.score>=65?'#f0b90b':st.score>=45?'#3fb950':st.score>=30?'#58a6ff':'#8b949e';
+  return `<div class="sec-title">🌡️ 情绪温度计 <span class="hint">偏冷/正常/过热判断（非买卖信号）</span></div>
+  <div class="card" style="border-color:${sc}55">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">${st.emoji||'🌡️'} 情绪状态</h3>
+      <div style="text-align:right">
+        <span style="font-size:28px;font-weight:800;color:${sc}">${st.score}</span>
+        <span style="font-size:14px;color:var(--sub);margin-left:4px">/ 100</span>
+        <div style="font-size:13px;color:${sc}">${st.label||'—'}</div>
+      </div>
+    </div>
+    <div style="height:10px;background:linear-gradient(90deg,#8b949e 0%,#58a6ff 30%,#3fb950 45%,#f0b90b 65%,#f6465d 80%);border-radius:5px;margin-bottom:14px;position:relative">
+      <div style="position:absolute;left:calc(${st.score}% - 2px);top:-3px;width:4px;height:16px;background:#fff;border-radius:2px;box-shadow:0 0 6px rgba(255,255,255,.6)"></div>
+    </div>
+    <table>
+      <tr><th>维度</th><th>权重</th><th>得分</th><th>说明</th></tr>
+      ${Object.values(dims).map(d=>`<tr>
+        <td><b>${d.label||'—'}</b></td>
+        <td class="hint">${(d.weight*100).toFixed(0)}%</td>
+        <td><span style="color:${d.score>=65?'var(--green)':d.score>=45?'var(--gold)':'var(--red)'};font-weight:700">${d.score}</span></td>
+        <td class="hint" style="font-size:11px">${d.detail||'—'}</td>
+      </tr>`).join('')}
+    </table>
+    <div class="analysis-muted" style="margin-top:8px">${st.summary||''}</div>
+    <div class="hint" style="font-size:10px;margin-top:4px">⚠️ 本指数为情绪温度计，用于判断偏冷/正常/过热，非直接买卖信号</div>
+  </div>`;
+}
+// ============ 情绪温度计结束 ============
+
 function renderAnalyze(r, k){
   const d = r.decision||{}, snap=r.snapshot||{}, q=r.quant_consensus||{};
   const conf = parseInt(d.confidence)||0;
@@ -852,13 +1218,17 @@ function renderAnalyze(r, k){
     </div>
   </div>
   <div class="uzi-formula">overall = fund_score × 0.6 + consensus × 0.4 = <b>${r.overall_score??'-'}</b>
-    ${r.report_record?`<a href="/api/analyze/export?id=${r.report_record.id}" download style="margin-left:12px;color:var(--accent2);font-weight:700">导出HTML报告</a>`:''}
+    ${r.report_record?`<a href="/api/analyze/export?id=${r.report_record.id}" download style="margin-left:12px;color:var(--accent2);font-weight:700">导出HTML</a> <a href="/api/analyze/export-png?id=${r.report_record.id}" download style="margin-left:8px;color:var(--accent2);font-weight:700">导出图片</a>`:''}
   </div>`;
 
   html += renderJuryBlock(r);
   html += renderValuationBlock(r.valuation||{});
   html += renderEarningsBlock(r.earnings_forecast||{});
   html += renderChannelResearch(r.channel_research||{});
+  html += renderFinancialDissect(r.financial_dissect||{});
+  html += renderBottleneckAudit(r.bottleneck_audit||{});
+  html += renderRiskFalsify(r.risk_falsify||{});
+  html += renderThermometerBlock(r.sentiment_thermometer||{});
 
   // 传统决策摘要（保留原智能分析信息）
   html += `
@@ -944,6 +1314,13 @@ function renderAnalyze(r, k){
   if(r.risk_assessment){
     html += `<div class="sec-title">🛡️ 风险评估</div><div class="card">${formatAnalysisText(r.risk_assessment)}</div>`;
   }
+  // 🆕 导出图片按钮（直接嵌入HTML，确保一定出现）
+  html += `<div class="export-btn-wrap" style="text-align:center;margin-top:18px">
+    <button onclick="exportModuleAsPNG('a-export-wrap','价值挖掘_${r.symbol||'unknown'}')"
+      style="background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;font-weight:700;font-size:13px;padding:8px 20px;border-radius:10px;border:none;cursor:pointer;opacity:0.9;transition:opacity .2s"
+      onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'"
+    >📸 导出高清分析报告</button>
+  </div>`;
   $('a-result').innerHTML = html;
 
   // 渲染K线（DOM 就绪后）
@@ -1272,6 +1649,14 @@ function renderValue(r){
   h += `</div>`;
 
   h += `<div class="hint">⚠️ 本分析由 AI 多角色基于公开信息与产业逻辑推演，标的代码/财务数据 best-effort，仅供研究参考，不构成投资建议。</div>`;
+  // 🆕 导出图片按钮
+  const vTarget = r.target || r.primary?.name || 'analysis';
+  h += `<div class="export-btn-wrap" style="text-align:center;margin-top:18px">
+    <button onclick="exportModuleAsPNG('v-export-wrap','价值挖掘_${vTarget.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g,'')}')"
+      style="background:linear-gradient(135deg,#f0b90b,#f0a429);color:#000;font-weight:700;font-size:13px;padding:8px 20px;border-radius:10px;border:none;cursor:pointer;opacity:0.9;transition:opacity .2s"
+      onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'"
+    >📸 导出完整分析报告</button>
+  </div>`;
   $('v-result').innerHTML = h;
 
   // 毛利率/CapEx 走势迷你图
@@ -1317,6 +1702,561 @@ async function loadValueHistory(id){
   renderValue(r);
 }
 
+// ============ 📊 实时分析 ============
+async function doRealtime(){
+  const sym = $('rt-symbol').value.trim();
+  if(!sym) return;
+  $('rt-board').innerHTML = '';
+  $('rt-chart').innerHTML = '';
+  $('rt-result').innerHTML = loading('实时数据分析中…');
+  try {
+    const r = await api('/api/realtime?symbol='+sym);
+    if(r.error){ $('rt-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    renderRealtime(r);
+    injectExportButton('rt-export-wrap', `实时分析_${r.symbol||sym}`);
+  }catch(e){
+    $('rt-result').innerHTML=`<div class="card down">请求失败: ${e}</div>`;
+  }
+}
+
+function renderRealtime(r){
+  const ms = r.ma_signals || {};
+  const ff = r.fund_flow || {};
+  const vs = r.volume_state || {};
+  const chg = r.change_pct || 0;
+  const chgCls = chg>=0?'up':'down';
+  const chgArrow = chg>=0?'▲':'▼';
+
+  // ── 看板 ──
+  const belowCount = [ms.vs_ma5,ms.vs_ma10,ms.vs_ma20].filter(m=>m&&m.below).length;
+  let trendLabel = '强势多头';
+  if(belowCount >= 3) trendLabel = '全面破位';
+  else if(belowCount >= 2) trendLabel = '弱势承压';
+  else if(belowCount >= 1) trendLabel = '短期回调';
+  const trendCls = belowCount>=2?'down':belowCount>=1?'hint':'up';
+
+  let board = `<div class="wr-board">
+    <div class="wr-item"><div class="wr-v ${chgCls}">¥${r.price||'—'}</div><div class="wr-k">最新价</div></div>
+    <div class="wr-item"><div class="wr-v ${chgCls}">${chgArrow} ${Math.abs(chg)}%</div><div class="wr-k">涨跌幅</div></div>
+    <div class="wr-item"><div class="wr-v ${trendCls}">${trendLabel}</div><div class="wr-k">均线趋势</div></div>
+    <div class="wr-item"><div class="wr-v">${ff.direction||'—'}</div><div class="wr-k">主力方向</div></div>
+  </div>`;
+  $('rt-board').innerHTML = board;
+
+  // ── 均线破位信号 ──
+  let maHtml = `<div class="card"><h3>📉 关键均线破位判断</h3><table>
+    <tr><th>均线</th><th>数值</th><th>状态</th><th>偏离幅度</th></tr>`;
+  const maKeys = [
+    {k:'price_vs_vwap',label:'分时均线(VWAP)'},
+    {k:'vs_ma5',label:'5日均线'},{k:'vs_ma10',label:'10日均线'},{k:'vs_ma20',label:'20日均线'}
+  ];
+  maKeys.forEach(m=>{
+    const v = ms[m.k] || {};
+    const status = v.below ? '<span class="down">⚠ 已跌破</span>' : '<span class="up">✅ 站上</span>';
+    const maVal = m.k==='price_vs_vwap'? `≈${v.vwap_approx||'—'}` : v.ma||'—';
+    maHtml += `<tr><td>${m.label}</td><td>${maVal}</td><td>${status}</td><td class="${v.below?'down':'up'}">${v.below?'-':''}${Math.abs(v.gap_pct||0)}%</td></tr>`;
+  });
+  maHtml += `</table>
+    <div class="analysis-muted">${ms.price_vs_vwap?.note||''}</div>
+  </div>`;
+
+  // ── 主力筹码 ──
+  const isInflow = ff.main_net_yi >= 0;
+  const flowColor = isInflow ? 'var(--red)' : 'var(--green)';
+  const maxAbs = Math.max(Math.abs(ff.main_net_yi||0), Math.abs(ff.super_net_yi||0), Math.abs(ff.big_net_yi||0), 0.01);
+  const barPct = (v) => Math.min(Math.abs(v||0) / maxAbs * 100, 100);
+  const barColor = (v) => v>=0 ? 'var(--red)' : 'var(--green)';
+  let fundHtml = `<div class="card"><h3>💰 今日主力筹码分析</h3>
+    <div class="decision">
+      <div class="metric"><div class="v" style="color:${flowColor}">${ff.main_net_yi!=null?(ff.main_net_yi>=0?'+':'')+ff.main_net_yi.toFixed(2)+'亿':'—'}</div><div class="l">主力净额</div></div>
+      <div class="metric"><div class="v">${ff.super_net_yi!=null?(ff.super_net_yi>=0?'+':'')+ff.super_net_yi.toFixed(2)+'亿':'—'}</div><div class="l">超大单</div></div>
+      <div class="metric"><div class="v">${ff.big_net_yi!=null?(ff.big_net_yi>=0?'+':'')+ff.big_net_yi.toFixed(2)+'亿':'—'}</div><div class="l">大单</div></div>
+      <div class="metric"><div class="v">${ff.inflow_ratio>0?ff.inflow_ratio+'%':'—'}</div><div class="l">净占比</div></div>
+    </div>
+    <div style="margin-top:8px">
+      ${['main_net_yi','super_net_yi','big_net_yi'].map(k=>{
+        const v = ff[k] || 0;
+        return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px">
+          <span style="width:50px;color:var(--sub)">${k==='main_net_yi'?'主力':k==='super_net_yi'?'超大单':'大单'}</span>
+          <span style="flex:1;height:6px;background:var(--line);border-radius:3px">
+            <span style="display:block;height:100%;width:${barPct(v)}%;background:${barColor(v)};border-radius:3px;transition:width .3s"></span>
+          </span>
+          <span style="color:${barColor(v)};min-width:50px;text-align:right">${v>=0?'+':''}${v.toFixed(2)}亿</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="analysis-muted" style="margin-top:8px">${ff.detail||'—'}</div>
+  </div>`;
+
+  // ── 成交量分析 ──
+  const vsCls = vs.status.includes('缩')?'hint':vs.status.includes('放')?'up':'';
+  let volHtml = `<div class="card"><h3>📊 缩量状态识别</h3>
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <div style="font-size:28px;font-weight:800;color:var(--${vs.status.includes('缩')?'gold':vs.status.includes('放')?'red':'sub'})">${vs.status||'—'}</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:14px">5日均量/20日均量：<b>${vs.vol_ratio_val!=null?(vs.vol_ratio_val*100).toFixed(0)+'%':'—'}</b></div>
+        <div class="hint" style="margin-top:4px">量比：${r.vol_ratio!=null?r.vol_ratio:'—'} · 换手率：${r.turnover!=null?r.turnover+'%':'—'}</div>
+        <div class="analysis-muted" style="margin-top:4px">${vs.detail||''}</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--sub)">
+      缩量参考线：日均量 &lt; 20日均量×70%→温和缩量 · &lt;50%→极度缩量 · &gt;150%→放量
+    </div>
+  </div>`;
+
+  // ── 情绪温度计 ──
+  let thermoHtml = '';
+  const st = r.sentiment_thermometer;
+  if(st && st.dimensions){
+    const dims = st.dimensions;
+    const scoreColors = {80:'#f6465d',65:'#f0b90b',45:'#3fb950',30:'#58a6ff',0:'#8b949e'};
+    const sc = st.score>=80?'#f6465d':st.score>=65?'#f0b90b':st.score>=45?'#3fb950':st.score>=30?'#58a6ff':'#8b949e';
+    thermoHtml = `<div class="card" style="border-color:${sc}55">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0">${st.emoji||'🌡️'} 情绪温度计</h3>
+        <div style="text-align:right">
+          <span style="font-size:28px;font-weight:800;color:${sc}">${st.score}</span>
+          <span style="font-size:14px;color:var(--sub);margin-left:4px">/ 100</span>
+          <div style="font-size:13px;color:${sc}">${st.label||'—'}</div>
+        </div>
+      </div>
+      <div style="height:8px;background:linear-gradient(90deg,#8b949e 0%,#58a6ff 30%,#3fb950 45%,#f0b90b 65%,#f6465d 80%);border-radius:4px;margin-bottom:12px;position:relative">
+        <div style="position:absolute;left:${st.score}%;top:-4px;width:4px;height:16px;background:#fff;border-radius:2px;box-shadow:0 0 4px rgba(255,255,255,.5)"></div>
+      </div>
+      <table>
+        <tr><th>维度</th><th>权重</th><th>得分</th><th>说明</th></tr>
+        ${Object.values(dims).map(d=>`<tr>
+          <td><b>${d.label||'—'}</b></td>
+          <td class="hint">${(d.weight*100).toFixed(0)}%</td>
+          <td><span style="color:${d.score>=65?'var(--green)':d.score>=45?'var(--gold)':'var(--red)'};font-weight:700">${d.score}</span></td>
+          <td class="hint" style="font-size:11px">${d.detail||'—'}</td>
+        </tr>`).join('')}
+      </table>
+      <div class="analysis-muted" style="margin-top:8px">${st.summary||''}</div>
+      <div class="hint" style="font-size:10px;margin-top:4px">⚠️ 本指数为情绪温度计，用于判断偏冷/正常/过热，非直接买卖信号</div>
+    </div>`;
+  }
+
+  $('rt-result').innerHTML = maHtml + fundHtml + volHtml + thermoHtml +
+    `<div class="hint" style="text-align:center;margin-top:12px">⚠️ 以上为量化指标，仅供研究参考，不构成投资建议。</div>`;
+
+  // ── K线走势图 ──
+  const k = r.kline_mini;
+  if(k && k.dates && k.dates.length){
+    setTimeout(()=>{
+      const el = $('rt-chart'); if(!el) return;
+      const c = echarts.init(el, 'dark');
+      c.setOption({
+        backgroundColor: 'transparent',
+        title: {text: `${r.name}(${r.symbol}) 近期走势`, left: 'center', textStyle: {color: '#c9d1d9', fontSize: 14}},
+        tooltip: {trigger: 'axis', axisPointer: {type: 'cross'}},
+        grid: {left: '8%', right: '4%', top: 40, bottom: 30},
+        xAxis: {type: 'category', data: k.dates, axisLabel: {color: '#8b98a9', fontSize: 10}, axisLine: {lineStyle: {color: '#30363d'}}},
+        yAxis: {type: 'value', scale: true, axisLabel: {color: '#8b98a9'}, splitLine: {lineStyle: {color: '#21262d'}}},
+        series: [
+          {name: 'K线', type: 'candlestick', data: k.candles,
+            itemStyle: {color: '#f6465d', color0: '#0ecb81', borderColor: '#f6465d', borderColor0: '#0ecb81'}},
+          {name: 'MA5', type: 'line', data: k.ma5, smooth: true, showSymbol: false, lineStyle: {color: '#f0b90b', width: 1}},
+          {name: 'MA10', type: 'line', data: k.ma10, smooth: true, showSymbol: false, lineStyle: {color: '#58a6ff', width: 1}},
+          {name: 'MA20', type: 'line', data: k.ma20, smooth: true, showSymbol: false, lineStyle: {color: '#a78bfa', width: 1}},
+        ]
+      });
+    }, 100);
+  }
+}
+// ============ 实时分析结束 ============
+
+// ============ 🌍 热点驱动 ============
+async function doNewsDriven(force){
+  $('nd-board').innerHTML = '';
+  $('nd-result').innerHTML = loading(force
+    ? '⚡ 强制扫描中：抓取全球新闻 → 过滤Agent → 多分析师分析 → 板块映射... (约30-90秒)'
+    : '读取最新热点驱动分析...');
+  try {
+    const url = '/api/news-driven' + (force ? '?force=true' : '');
+    const r = await apiWithTimeout(url, 180000);
+    if(r.error){ $('nd-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    renderNewsDriven(r);
+    injectExportButton('nd-export-wrap', `热点驱动_${(r.scan_time||'').slice(0,10)}`);
+  } catch(e) {
+    const msg = e.message||'';
+    if(e.name==='AbortError'||msg.includes('aborted')){
+      $('nd-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新点击。</div>`;
+    } else {
+      $('nd-result').innerHTML=`<div class="card down">请求失败: ${e}</div>`;
+    }
+  }
+}
+
+function renderNewsDriven(r){
+  // 看板
+  const sectors = r.sectors || [];
+  const topSector = sectors[0] || {};
+  const board = `<div class="wr-board">
+    <div class="wr-item"><div class="wr-v">${r.news_count||0}</div><div class="wr-k">抓取新闻</div></div>
+    <div class="wr-item"><div class="wr-v">${r.filtered_count||0}</div><div class="wr-k">过滤保留</div></div>
+    <div class="wr-item"><div class="wr-v">${sectors.length}</div><div class="wr-k">利好板块</div></div>
+    <div class="wr-item"><div class="wr-v" style="color:var(--gold)">${topSector.bullish_score||'—'}</div><div class="wr-k">最高评分</div></div>
+  </div>
+  <div class="card hint" style="text-align:center">⏰ 扫描时间: ${(r.scan_time||'').slice(0,19).replace('T',' ')} · 来源: 全球新闻聚合+多Agent分析</div>`;
+  $('nd-board').innerHTML = board;
+
+  // 过滤后的新闻
+  const filtered = r.filtered_news || [];
+  let newsHtml = '';
+  if(filtered.length){
+    newsHtml = `<div class="sec-title">📰 过滤Agent筛选结果（${filtered.length}条有价值资讯）</div>
+    <div class="card"><table>
+      <tr><th>价值</th><th>标题</th><th>来源</th><th>关联板块</th><th>理由</th></tr>
+      ${filtered.slice(0,15).map(n=>`<tr>
+        <td><span class="${n.value==='high'?'up':n.value==='medium'?'hint':'dim'}">${n.value==='high'?'🔥高':n.value==='medium'?'中':'低'}</span></td>
+        <td style="max-width:300px">${n.title||'—'}</td>
+        <td class="hint">${n.source||'—'}</td>
+        <td class="hint">${(n.related_sectors||n.keywords||[]).join(',')}</td>
+        <td class="hint" style="font-size:11px;max-width:200px">${(n.reason||'').slice(0,60)}</td>
+      </tr>`).join('')}
+    </table></div>`;
+  }
+
+  // 板块利好结果
+  let secHtml = '';
+  if(sectors.length){
+    secHtml = `<div class="sec-title">🎯 板块利好分析（多Agent协作）</div><div class="pick-grid">`;
+    sectors.forEach((s,i)=>{
+      const score = s.bullish_score || 0;
+      const scoreColor = score>=80?'var(--red)':score>=60?'var(--gold)':'var(--sub)';
+      const stocks = s.stocks || [];
+      secHtml += `<div class="pick-card">
+        <div class="pick-head">
+          <div><span class="pick-rank">#${i+1}</span><span class="pick-name">${s.sector||'—'}</span>
+          <span class="pick-tag" style="background:rgba(240,180,41,.2)">${s.benefit_type||'—'}</span></div>
+          <div class="pick-score" style="color:${scoreColor}">${score}</div>
+        </div>
+        <div class="pick-reason"><b>催化剂：</b>${s.catalyst||'—'}</div>
+        <div class="pick-reason" style="font-size:11px"><b>证据：</b>${s.evidence||'—'}</div>
+        ${stocks.length?`<div class="pick-stats" style="margin-top:6px">
+          ${stocks.map(st=>`<div><span class="k">${st.name}(${st.code})</span><span class="v">${st.score}分</span></div>`).join('')}
+        </div>`:''}
+        ${stocks.length?`<div class="pick-reason" style="font-size:11px;margin-top:4px">
+          ${stocks.map(st=>`<div>• <b>${st.name}</b>: ${st.reason}</div>`).join('')}
+        </div>`:''}
+        <div class="hint" style="font-size:10px;margin-top:4px">分析师: ${s.analyst||'—'} · 相关新闻${s.news_count||0}条</div>
+      </div>`;
+    });
+    secHtml += `</div>`;
+  } else {
+    secHtml = `<div class="card hint">本次扫描未识别到明显利好板块</div>`;
+  }
+
+  $('nd-result').innerHTML = newsHtml + secHtml +
+    `<div class="hint" style="text-align:center;margin-top:12px">⚠️ 以上分析由AI基于公开新闻推演，仅供研究参考，不构成投资建议。</div>`;
+}
+// ============ 热点驱动结束 ============
+
+// ──────── 多日对比分析 ────────
+let ctCurrentRange = '3d';
+let ctCurrentData = null;
+let ctDates = [];            // 可用日期列表
+let ctSelectedIds = [];     // 当前选中ID集合
+
+async function switchRange(mode, btn){
+  ctCurrentRange = mode;
+  document.querySelectorAll('.range-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ctSelectedIds = [];
+  await loadDatePicker();
+}
+
+async function loadDatePicker(){
+  const res = await fetch(`/api/news-driven/dates?range=${ctCurrentRange}`);
+  const {dates, max_retention_days} = await res.json();
+  ctDates = dates;
+  renderMultiSelectOptions();
+  if(ctCurrentRange==='all'){
+    $('nd-compare-hint').innerHTML=`📌 数据最多保留 ${max_retention_days} 天，超出将自动清理`;
+  } else {
+    $('nd-compare-hint').innerHTML='';
+  }
+}
+
+// ── 多选下拉框 ──
+function toggleMultiSelect(){
+  const dd = $('nd-ms-dropdown');
+  const tr = $('nd-ms-trigger');
+  dd.classList.toggle('show');
+  tr.classList.toggle('open');
+  // 点击外部关闭
+  if(dd.classList.contains('show')){
+    setTimeout(()=>document.addEventListener('click', closeMultiSelectOutside), 10);
+  }
+}
+
+function closeMultiSelectOutside(e){
+  const wrap = $('nd-ms-wrap');
+  if(!wrap.contains(e.target)){
+    $('nd-ms-dropdown').classList.remove('show');
+    $('nd-ms-trigger').classList.remove('open');
+    document.removeEventListener('click', closeMultiSelectOutside);
+  }
+}
+
+function renderMultiSelectOptions(){
+  const container = $('nd-ms-options');
+  if(!ctDates.length){
+    container.innerHTML = '<div class="multi-select-opt disabled"><span class="opt-label">暂无历史数据</span></div>';
+    return;
+  }
+  container.innerHTML = ctDates.map(d=>{
+    const sel = ctSelectedIds.includes(d.id);
+    return `<div class="multi-select-opt ${sel?'selected':''}" data-id="${d.id}" onclick="toggleMultiOption(this,${d.id})">
+      <div class="opt-check">✓</div>
+      <span class="opt-label">${d.date}</span>
+      <span class="opt-meta">${d.news_count}条·${d.sector_count}板块</span>
+    </div>`;
+  }).join('');
+  updateMultiSelectDisplay();
+}
+
+function toggleMultiOption(el, id){
+  if(el.classList.contains('disabled')) return;
+  const idx = ctSelectedIds.indexOf(id);
+  if(idx>=0){
+    ctSelectedIds.splice(idx,1);
+    el.classList.remove('selected');
+  } else {
+    ctSelectedIds.push(id);
+    el.classList.add('selected');
+  }
+  updateMultiSelectDisplay();
+}
+
+function updateMultiSelectDisplay(){
+  const tags = $('nd-ms-tags');
+  const btn = $('btn-compare');
+  if(!ctSelectedIds.length){
+    tags.innerHTML='<span class="multi-select-placeholder">请选择日期（至少2天）</span>';
+    btn.disabled = true;
+    return;
+  }
+  const selectedDates = ctDates.filter(d=>ctSelectedIds.includes(d.id));
+  tags.innerHTML = selectedDates.map(d=>
+    `<span class="multi-select-tag">${d.date} <span class="tag-close" onclick="event.stopPropagation();removeMultiTag(${d.id})">×</span></span>`
+  ).join('');
+  btn.disabled = ctSelectedIds.length < 2;
+  if(ctSelectedIds.length < 2){
+    btn.title = '至少选择2天';
+  } else {
+    btn.title = '';
+  }
+}
+
+function removeMultiTag(id){
+  ctSelectedIds = ctSelectedIds.filter(x=>x!==id);
+  renderMultiSelectOptions();
+}
+
+function clearMultiSelect(){
+  ctSelectedIds = [];
+  renderMultiSelectOptions();
+}
+
+function confirmMultiSelect(){
+  const dd = $('nd-ms-dropdown');
+  const tr = $('nd-ms-trigger');
+  dd.classList.remove('show');
+  tr.classList.remove('open');
+  document.removeEventListener('click', closeMultiSelectOutside);
+  if(ctSelectedIds.length < 2){ showToast('请至少选择2天'); return; }
+  doCompare();
+}
+
+function getSelectedIds(){
+  return [...ctSelectedIds];  // 保持顺序
+}
+
+async function doCompare(){
+  const ids = getSelectedIds();
+  if(ids.length<2){ showToast('请至少选择2天'); return; }
+  showCompareLoading();
+  const res = await fetch(`/api/news-driven/compare?ids=${ids.join(',')}`);
+  const data = await res.json();
+  if(data.error){ showToast(data.error); hideCompareLoading(); return; }
+  ctCurrentData = data;
+  renderCompareResults(data);
+  $('btn-compare-llm').style.display = 'inline-block';
+  $('btn-compare-export').style.display = 'inline-block';
+  hideCompareLoading();
+}
+
+async function doLLMCompare(){
+  const ids = getSelectedIds();
+  if(ids.length<2){ showToast('请至少选择2天'); return; }
+  showCompareLoading('🧠 AI正在生成深度总结...');
+  const res = await fetch(`/api/news-driven/compare-llm?ids=${ids.join(',')}`);
+  const data = await res.json();
+  if(data.error){ showToast(data.error); hideCompareLoading(); return; }
+  ctCurrentData = data;
+  renderSummary(data.summary);
+  showToast('✅ AI总结已生成');
+  hideCompareLoading();
+}
+
+async function exportComparePNG(){
+  if(!ctCurrentData){ showToast('请先执行对比分析'); return; }
+  showCompareLoading('📥 正在生成PNG...');
+  try {
+    const res = await fetch('/api/news-driven/compare-png', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(ctCurrentData)
+    });
+    if(!res.ok) throw new Error('导出失败');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `热点对比分析_${new Date().toISOString().slice(0,10)}.png`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast('✅ PNG已下载');
+  } catch(e){ showToast('导出失败: '+e.message); }
+  hideCompareLoading();
+}
+
+function showCompareLoading(msg='正在分析...'){
+  $('nd-compare-result').style.display = 'none';
+  $('nd-compare-hint').innerHTML = `<span class="loading"></span> ${msg}`;
+}
+
+function hideCompareLoading(){
+  $('nd-compare-hint').innerHTML = ctCurrentRange==='all'?
+    '📌 数据最多保留 7 天，超出将自动清理':'';
+}
+
+function renderCompareResults(data){
+  $('nd-compare-result').style.display = 'block';
+
+  // 折线图: 板块趋势
+  renderTrendChart(data.trends);
+  // 热力图
+  renderHeatmapChart(data.heatmap);
+  // 柱状图: 核心指标
+  renderMetricChart(data.trends.metrics);
+  // 共性板块
+  renderCommonBlock(data.comparison);
+  // 特异板块
+  renderUniqueBlock(data.comparison);
+  // 关键词
+  renderKeywords(data.comparison);
+  // 总结
+  renderSummary(data.summary);
+  window.scrollTo({top: $('nd-compare-panel').offsetTop-80, behavior:'smooth'});
+}
+
+function renderTrendChart(trends){
+  const chartDom = $('ct-trend-chart');
+  const myChart = echarts.init(chartDom);
+  const sectors = trends.sectors || [];
+  const series = sectors.map(s=>({
+    name:s.name, type:'line', smooth:true, data:s.scores,
+    symbol:'circle', symbolSize:6,
+    lineStyle:{width:2}, emphasis:{focus:'series'}
+  }));
+  myChart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{type:'scroll', bottom:0, textStyle:{color:'#8b98a9',fontSize:11}},
+    grid:{left:40,right:20,top:20,bottom:40},
+    xAxis:{type:'category',data:trends.sectors[0]?.dates||[],axisLabel:{color:'#8b98a9'}},
+    yAxis:{type:'value',name:'评分',min:0,max:100,axisLabel:{color:'#8b98a9'}},
+    series
+  });
+  window.addEventListener('resize',()=>myChart.resize());
+}
+
+function renderHeatmapChart(heatmap){
+  const chartDom = $('ct-heatmap-chart');
+  const myChart = echarts.init(chartDom);
+  const hd = [];
+  (heatmap.data||[]).forEach((row,ri)=>{
+    row.forEach((val,ci)=>{
+      hd.push([ri,ci,val||'-']);
+    });
+  });
+  myChart.setOption({
+    tooltip:{formatter:p=>`${heatmap.dates[p.data[0]]}<br/>${heatmap.sectors[p.data[1]]}: ${p.data[2]==='-'?'—':p.data[2]+'分'}`},
+    grid:{left:80,right:30,top:10,bottom:30},
+    xAxis:{type:'category',data:heatmap.dates||[],axisLabel:{color:'#8b98a9'}},
+    yAxis:{type:'category',data:heatmap.sectors||[],axisLabel:{color:'#8b98a9',fontSize:11}},
+    visualMap:{min:0,max:100,calculable:true,orient:'horizontal',left:'center',bottom:0,
+      inRange:{color:['#161b22','#0e4429','#006d32','#26a641','#39d353']},
+      textStyle:{color:'#8b98a9'}},
+    series:[{type:'heatmap',data:hd,label:{show:true,fontSize:9,color:'#c9d1d9'},emphasis:{itemStyle:{shadowBlur:10,shadowColor:'rgba(0,0,0,.5)'}}}]
+  });
+  window.addEventListener('resize',()=>myChart.resize());
+}
+
+function renderMetricChart(metrics){
+  const chartDom = $('ct-metric-chart');
+  const myChart = echarts.init(chartDom);
+  myChart.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['新闻总量','板块数','均分'],bottom:0,textStyle:{color:'#8b98a9'}},
+    grid:{left:40,right:20,top:20,bottom:40},
+    xAxis:{type:'category',data:metrics.dates||[],axisLabel:{color:'#8b98a9'}},
+    yAxis:{type:'value',axisLabel:{color:'#8b98a9'}},
+    series:[
+      {name:'新闻总量',type:'bar',data:metrics.total_news,itemStyle:{color:'#3b82f6'}},
+      {name:'板块数',type:'bar',data:metrics.sector_counts,itemStyle:{color:'#a78bfa'}},
+      {name:'均分',type:'bar',data:metrics.avg_score,itemStyle:{color:'#f0b90b'}}
+    ]
+  });
+  window.addEventListener('resize',()=>myChart.resize());
+}
+
+function renderCommonBlock(comp){
+  const items = comp.common_sectors || [];
+  const list = items.slice(0,8).map(c=>{
+    const trendEmoji = c.trend==='↑连续升温'?'🔥':c.trend==='↓持续降温'?'❄️':'→';
+    return `<div class="item"><span class="nm">${trendEmoji} ${c.name}</span><span><span class="sc">${c.avg_score}</span><span class="sd">${c.appearances}天 ${c.trend}</span></span></div>`;
+  }).join('');
+  $('ct-common-list').innerHTML = list || '<div class="hint">无共性板块</div>';
+}
+
+function renderUniqueBlock(comp){
+  const unique = comp.unique_per_day || {};
+  let html = '';
+  for(const [day,items] of Object.entries(unique)){
+    items.slice(0,3).forEach(it=>{
+      html += `<div class="item"><span class="nm">${day}</span><span><span class="sc">${it.name}</span><span class="sd">${it.score}分</span></span></div>`;
+    });
+  }
+  $('ct-unique-list').innerHTML = html || '<div class="hint">无特异板块</div>';
+}
+
+function renderKeywords(comp){
+  let ckw = (comp.common_keywords||[]).map(k=>`<span class="ct-kw">${k}</span>`).join('');
+  let dkw = (comp.divergence_keywords||[]).map(k=>`<span class="ct-kw ct-kw2">${k}</span>`).join('');
+  $('ct-common-kws').innerHTML = ckw || '<span class="hint">—</span>';
+  $('ct-diverge-kws').innerHTML = dkw || '<span class="hint">—</span>';
+}
+
+function renderSummary(summary){
+  const genBy = summary.generated_by==='llm'?'🧠 AI生成':'📋 规则引擎';
+  let html = `<div class="ct-text">${summary.text||'暂无总结'}</div>`;
+  if(summary.highlights&&summary.highlights.length){
+    html += `<div class="ct-high" style="margin-top:8px">${summary.highlights.map(h=>'✅ '+h).join('<br>')}</div>`;
+  }
+  if(summary.risk_notes&&summary.risk_notes.length){
+    html += `<div class="ct-risk" style="margin-top:8px">${summary.risk_notes.map(r=>'⚠️ '+r).join('<br>')}</div>`;
+  }
+  html += `<div class="ct-gen">${genBy}</div>`;
+  $('ct-summary-box').innerHTML = html;
+}
+
+async function initComparePanel(){
+  await loadDatePicker();
+}
+
+// ============ 热点驱动多日对比结束 ============
+
 // 每日荐股 + 反思
 function setRecommendRegenState(st){
   const btn = $('rc-regen-btn');
@@ -1356,15 +2296,110 @@ async function doRecommend(regen){
   const fib50 = $('rc-fib50') && $('rc-fib50').checked ? '&require_fib_50=1' : '';
   const url = regen ? `/api/recommend?count=${cnt}${fib50}` : '/api/recommend/latest';
   try{
-    const r = regen ? await apiWithTimeout(url, 240000) : await api(url);
+    const r = regen ? await apiWithTimeout(url, 300000) : await api(url);
     if(r.error){ $('rc-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
     if(r.empty){ $('rc-result').innerHTML=`<div class="card hint">暂无荐股记录，请点击「重新生成」。</div>`; return; }
     if($('rc-history')) $('rc-history').value='';  // 回到最新时清空历史选择
     renderRecommend(r);
     loadHistoryDates();
   }catch(e){
-    $('rc-result').innerHTML=`<div class="card down">请求超时或网络异常：每日荐股涉及全市场/主线板块/资金流/龙虎榜等数据，若超过4分钟请稍后重试，或先点击「读取最新荐股」。</div>`;
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted') || msg.includes('abort')) {
+      $('rc-result').innerHTML=`<div class="card hint">⏸️ 请求已取消（您可能刷新了页面或切换了Tab）。如仍需荐股，请重新操作。</div>`;
+    } else {
+      $('rc-result').innerHTML=`<div class="card down">请求超时或网络异常：每日荐股涉及全市场/主线板块/资金流/龙虎榜等数据，若超过5分钟请稍后重试，或先点击「读取最新荐股」。</div>`;
+    }
   }
+}
+
+// LLM两阶段智能选股
+async function doLLMPipeline(){
+  if($('rc-pipeline-btn')) $('rc-pipeline-btn').disabled = true;
+  $('rc-board').innerHTML = '';
+  $('rc-result').innerHTML = `
+    <div class="card card-blue" style="text-align:center">
+      <div style="font-size:16px;margin-bottom:8px">🤖 LLM两阶段选股运行中...</div>
+      <div class="progress-track" style="height:8px;background:var(--line);border-radius:4px;margin:12px 0">
+        <div id="llm-progress-bar" class="progress-fill" style="height:100%;width:0%;background:linear-gradient(135deg,var(--accent),#a78bfa);border-radius:4px;transition:width 0.5s"></div>
+      </div>
+      <div id="llm-progress-text" style="font-size:12px;color:var(--sub)">初始化中...</div>
+      <div id="llm-progress-time" style="font-size:11px;color:var(--dim);margin-top:4px">已耗时 0s</div>
+    </div>`;
+  
+  // 启动进度轮询
+  let pollTimer = setInterval(async () => {
+    try {
+      const status = await api('/api/recommend/llm-status');
+      const bar = document.getElementById('llm-progress-bar');
+      const text = document.getElementById('llm-progress-text');
+      const time = document.getElementById('llm-progress-time');
+      if(bar) bar.style.width = (status.progress || 0) + '%';
+      if(text) text.textContent = status.message || '...';
+      if(time && status.elapsed_s != null) time.textContent = `已耗时 ${status.elapsed_s}s`;
+      if(!status.running && status.stage === 'done') {
+        clearInterval(pollTimer);
+      }
+    } catch(e) {}
+  }, 2000);
+
+  try{
+    const r = await apiWithTimeout('/api/recommend/llm-pipeline?count=5', 300000);
+    clearInterval(pollTimer);
+    if(r.error){ $('rc-result').innerHTML=`<div class="card down">${r.error}</div>`; if($('rc-pipeline-btn')) $('rc-pipeline-btn').disabled = false; return; }
+    // 展示Stage1主线分析
+    const s1 = r.stage1;
+    let board = '';
+    if(s1 && s1.main_themes && s1.main_themes.length){
+      board += `<div class="card card-gold"><strong>🎯 Stage1 主线分析</strong><br>`;
+      board += `<em>"${s1.market_verdict||''}"</em><br>`;
+      board += `<table><tr><th>排名</th><th>主线</th><th>置信度</th><th>玩法</th></tr>`;
+      s1.main_themes.forEach(t=>{
+        board += `<tr><td>#${t.rank||'?'}</td><td>${t.name||''}</td><td>${((t.confidence||0)*100).toFixed(0)}%</td><td>${t.play_style||''}</td></tr>`;
+      });
+      board += `</table></div>`;
+      const rc = s1.hard_constraints;
+      if(rc){
+        board += `<div class="card card-blue" style="font-size:12px">`;
+        board += `<strong>📐 硬约束：</strong>`;
+        if(rc.only_mainline) board += ` 仅主线内选股 |`;
+        if(rc.max_per_sector) board += ` 单板块≤${rc.max_per_sector}|`;
+        if(rc.exclude_sectors&&rc.exclude_sectors.length) board += ` 回避:${rc.exclude_sectors.join(',')}|`;
+        if(rc.min_score) board += ` 最低分≥${rc.min_score}|`;
+        board += `</div>`;
+      }
+      if(s1.risk_warnings && s1.risk_warnings.length){
+        board += `<div class="warn-box" style="font-size:12px">⚠️ ${s1.risk_warnings.join('；')}</div>`;
+      }
+    }
+    // 展示Stage2校验
+    const s2 = r.stage2;
+    if(s2 && s2.decisions && s2.decisions.length){
+      board += `<div class="card card-purple" style="margin-top:8px">`;
+      board += `<strong>🔍 Stage2 偏离度校验：</strong>${s2.summary||''}<br>`;
+      board += `<table><tr><th>标的</th><th>结果</th><th>加减分</th><th>理由</th></tr>`;
+      s2.decisions.forEach(d=>{
+        const v = d.verdict === 'on_theme' ? '✅契合' : d.verdict === 'off_theme' ? '❌偏离' : '⚠️边缘';
+        board += `<tr><td>${d.symbol}</td><td>${v}</td><td>${(d.ai_score||0)>0?'+':''}${(d.ai_score||0).toFixed(2)}</td><td>${(d.reason||'').slice(0,60)}</td></tr>`;
+      });
+      board += `</table></div>`;
+    }
+    $('rc-board').innerHTML = board;
+    // 展示最终推荐
+    if(r.picks && r.picks.length){
+      renderRecommend(r);
+    }else{
+      $('rc-result').innerHTML=`<div class="card hint">两阶段校验后无符合主线的标的。${r.pipeline_used?'本期LLM严格过滤，请降低预期。':''}</div>`;
+    }
+  }catch(e){
+    clearInterval(pollTimer);
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted') || msg.includes('abort')) {
+      $('rc-result').innerHTML=`<div class="card hint">⏸️ 请求已取消（您可能刷新了页面或切换了Tab）。如仍需选股，请重新点击按钮。</div>`;
+    } else {
+      $('rc-result').innerHTML=`<div class="card down">LLM两阶段选股异常：${msg || '请稍后重试'}</div>`;
+    }
+  }
+  if($('rc-pipeline-btn')) $('rc-pipeline-btn').disabled = false;
 }
 
 // 加载历史荐股日期列表
@@ -1599,6 +2634,7 @@ function renderRecommend(r, isHistory){
   });
   html += `</div><div class="hint" style="margin-top:10px">⚠️ 推荐基于历史数据与量化模型，胜率持续通过反思机制迭代，仅供研究参考，不构成投资建议。</div>`;
   $('rc-result').innerHTML = html;
+  injectExportButton('rc-export-wrap', '每日荐股');
 
   // 迷你K线
   picks.forEach((p,i)=>{
@@ -1807,7 +2843,12 @@ async function doTailRecommend(){
     if(r.error){ $('tr-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailRecommendStatus(); if(btn) btn.disabled = false; return; }
     renderTailRecommend(r);
   }catch(e){
-    $('tr-result').innerHTML=`<div class="card down">请求超时或网络异常。尾盘荐股需拉取全市场数据，首次约需60秒；若已生成过，请稍后重试。</div>`;
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted')) {
+      $('tr-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新点击按钮。</div>`;
+    } else {
+      $('tr-result').innerHTML=`<div class="card down">请求超时或网络异常。尾盘荐股需拉取全市场数据，首次约需60秒；若已生成过，请稍后重试。</div>`;
+    }
   }
   if(btn) btn.disabled = false;
 }
@@ -1932,6 +2973,7 @@ function renderTailRecommend(r){
   });
   html += `</div><div class="hint" style="margin-top:10px">⚠️ 尾盘荐股使用盘中数据，今日 15:00 前可买入，次日早盘验证。回测仅供参考。</div>`;
   $('tr-result').innerHTML = html;
+  injectExportButton('tr-export-wrap', '尾盘荐股');
 
   // 迷你K线
   picks.forEach((p,i)=>{
@@ -1971,6 +3013,146 @@ function renderTailStatus(st){
     <div class="tail-pill" style="flex:1">${st.reason||''}</div>`;
   const btn=$('tp-run'); if(btn){ btn.disabled=!st.enabled; btn.title=st.reason||''; }
 }
+// 尾盘选股 v2 专属引擎
+async function doTailPickV2(){
+  $('tp-result').innerHTML = loading('🆕 尾盘专属引擎：午后活跃股池 → 动量/VWAP/抢筹 → 回落风控...');
+  try{
+    const r = await api(`/api/tailpick-v2?count=${$('tp-count')?.value||5}&force=1`);
+    if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    if(r.engine) $('tp-result').innerHTML = `<div class="card card-gold" style="margin-bottom:8px">⚙️ 引擎: ${r.engine} | 权重: 资金流40%+午后技术35%+市场25%</div>`;
+    renderTailPick(r);
+  }catch(e){
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted')) {
+      $('tp-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新操作。</div>`;
+    } else {
+      $('tp-result').innerHTML=`<div class="card down">尾盘专属引擎异常: ${e}</div>`;
+    }
+  }
+}
+// 尾盘选股 v3 AI协同引擎
+async function doTailPickAI(){
+  $('tp-result').innerHTML = loading('🤖 AI协同引擎：Layer1 LLM市场感知 → Layer2 ML拉升预测 → Layer3 LLM审查 → Layer4 风控...');
+  try{
+    const r = await api(`/api/tailpick-ai?count=${$('tp-count')?.value||5}&force=1`);
+    if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    if(r.engine) $('tp-result').innerHTML = `<div class="card card-gold" style="margin-bottom:8px">⚙️ ${r.engine} | ML模型: ${r.ml_insights?.model||'启发式'} | 权重: ML35%+资金25%+技术20%+市场15%+板块5%</div>`;
+    renderTailPick(r);
+  }catch(e){
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted')) {
+      $('tp-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新操作。</div>`;
+    } else {
+      $('tp-result').innerHTML=`<div class="card down">AI协同引擎异常: ${e}</div>`;
+    }
+  }
+}
+
+// ===================== 复盘哥选股 =====================
+async function doFugupan(){
+  $('fg-board').innerHTML = '';
+  $('fg-result').innerHTML = loading('🧠 复盘哥：判定情绪周期 → 识别主流热点 → 四维共振评分 → 养家心法输出...');
+  try{
+    const r = await api('/api/fugupan?count=8');
+    if(r.error){ $('fg-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
+    window._fugupanData = r;  // 缓存结果用于导出
+
+    const c = r.cycle || {};
+    const s = r.summary || {};
+    const ta = r.theme_analysis || {};
+
+    // 周期看板
+    let phaseCls = c.phase==='高潮期'?'gold':c.phase==='复苏期'?'up':c.phase==='退潮期'?'down':'dim';
+    let board = `<div class="wr-board">
+      <div class="wr-item"><div class="wr-v ${phaseCls}">${c.phase}</div><div class="wr-k">情绪周期</div></div>
+      <div class="wr-item"><div class="wr-v">${c.score}</div><div class="wr-k">周期评分</div></div>
+      <div class="wr-item"><div class="wr-v">${ta.hot_count || 0}</div><div class="wr-k">热点板块</div></div>
+      <div class="wr-item"><div class="wr-v">${ta.candidates_scanned || 0}</div><div class="wr-k">活跃候选</div></div>
+    </div>
+    <div class="card card-gold"><b>📐 仓位建议：</b>${s.position_advice || '-'}<br><span class="hint">${s.position_detail || ''}</span></div>
+    <div class="card card-blue"><b>🧘 养家心法：</b>${(s.heart_sutras||[]).slice(0,3).map(t=>'「'+t+'」').join(' ')}</div>`;
+
+    if(s.warnings && s.warnings.length){
+      board += `<div class="warn-box">⚠️ ${s.warnings.join('<br>⚠️ ')}</div>`;
+    }
+
+    // 热点板块
+    if(ta.top_sectors && ta.top_sectors.length){
+      board += `<div class="card" style="font-size:12px"><b>🔥 热点板块：</b>${ta.top_sectors.join('、')}</div>`;
+    }
+
+    $('fg-board').innerHTML = board;
+
+    // 选股结果
+    const picks = r.picks || [];
+    if(!picks.length){
+      $('fg-result').innerHTML = `<div class="card hint">${r.mode==='critical_warning'?`当前${c.phase}，${s.mantra}`:'无符合三维共振的标的'}。${s.position_advice}</div>`;
+      return;
+    }
+
+    let html = `<div class="sec-title">🎯 三维共振精选 Top ${picks.length}（评分=天时30%+人和25%+身位25%+形态20%）</div><div class="pick-grid">`;
+    picks.forEach((p,i)=>{
+      const ti = p.theme_info || {};
+      const pi = p.pos_info || {};
+      const si = p.struct_info || {};
+      html += `<div class="pick-card">
+        <div class="pick-head"><div><span class="pick-rank">#${i+1}</span><span class="pick-name">${p.name}</span><span class="pick-code">${p.symbol}</span></div><div class="tail-score">${p.score}</div></div>
+        <div class="pick-price-row"><span class="pick-price">¥${p.price??'—'}</span><span class="${(p.pct_change||0)>=0?'up':'down'}">${(p.pct_change||0)>=0?'▲':'▼'} ${p.pct_change}%</span><span class="pick-sector">${p.industry||ti.sector||'—'}</span></div>
+        <div class="pick-tags">
+          ${ti.is_mainstream?`<span class="pick-tag" style="background:rgba(240,180,41,.2)">主流热点·${ti.role||''}</span>`:''}
+          ${p.pct_change>=9.5?'<span class="pick-tag">🔥涨停封板</span>':''}
+        </div>
+        <div class="pick-stats">
+          <div><span class="k">天时</span><span class="v">${p.cycle}</span></div>
+          <div><span class="k">人和</span><span class="v">${p.theme}</span></div>
+          <div><span class="k">身位</span><span class="v">${p.position}</span></div>
+          <div><span class="k">形态</span><span class="v">${p.structure}</span></div>
+          <div><span class="k">换手</span><span class="v">${pi.turnover?.toFixed?pi.turnover?.toFixed(1):pi.turnover}%</span></div>
+          <div><span class="k">量比</span><span class="v">${pi.vol_ratio?.toFixed?pi.vol_ratio?.toFixed(1):pi.vol_ratio}</span></div>
+        </div>
+        <div class="pick-reason" style="font-size:11px"><b>身位：</b>${pi.note||'-'}<br><b>形态：</b>${si.note||'-'}</div>
+      </div>`;
+    });
+    html += `</div>
+    <div style="text-align:center;margin-top:12px;display:flex;gap:8px;justify-content:center">
+      <button onclick="exportFugupan()" style="background:var(--gold);color:#000;font-weight:700;font-size:12px;padding:6px 14px;border-radius:8px;border:none;cursor:pointer">📸 高清导出（服务端渲染）</button>
+      <button onclick="exportModuleAsPNG('fg-export-wrap','复盘哥选股')" style="background:var(--accent);color:#fff;font-weight:700;font-size:12px;padding:6px 14px;border-radius:8px;border:none;cursor:pointer">📸 快速导出（含图表）</button>
+    </div>`;
+    $('fg-result').innerHTML = html;
+  }catch(e){
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted')) {
+      $('fg-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新点击按钮。</div>`;
+    } else {
+      $('fg-result').innerHTML=`<div class="card down">复盘哥选股异常: ${e}</div>`;
+    }
+  }
+}
+
+async function exportFugupan(){
+  const data = window._fugupanData;
+  if(!data || !data.picks || !data.picks.length){
+    $('fg-result').insertAdjacentHTML('beforeend','<div class="card down">请先生成选股结果</div>');
+    return;
+  }
+  try{
+    const resp = await fetch('/api/fugupan/export-png', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if(!resp.ok){ throw new Error(await resp.text()); }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `fugupan-${data.as_of?.slice(0,10)||'report'}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    $('fg-result').insertAdjacentHTML('beforeend',`<div class="card down">导出失败: ${e.message||e}</div>`);
+  }
+}
+
 async function doTailPick(){
   const btn=$('tp-run');
   if(btn && btn.disabled){ $('tp-result').innerHTML=`<div class="card hint">${btn.title||'当前不在尾盘选股窗口'}</div>`; return; }
@@ -1982,9 +3164,18 @@ async function doTailPick(){
     only_mainline: $('tp-mainline').checked ? '1' : '0'
   });
   $('tp-result').innerHTML = loading('多 Agent 正在筛选尾盘候选：市场情绪 → 资金流 → 技术形态 → 风控，请稍候...');
-  const r = await api('/api/tailpick?'+q.toString());
-  if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailPickStatus(); return; }
-  renderTailPick(r);
+  try {
+    const r = await api('/api/tailpick?'+q.toString());
+    if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; refreshTailPickStatus(); return; }
+    renderTailPick(r);
+  } catch(e) {
+    const msg = e.message || '';
+    if (e.name === 'AbortError' || msg.includes('aborted')) {
+      $('tp-result').innerHTML=`<div class="card hint">⏸️ 请求已取消，请重新操作。</div>`;
+    } else {
+      $('tp-result').innerHTML=`<div class="card down">请求异常: ${e}</div>`;
+    }
+  }
 }
 function renderTailPick(r){
   const m=r.market||{}, b=m.breadth||{}, themes=m.main_themes||[];
@@ -2028,6 +3219,7 @@ function renderTailPick(r){
   });
   html += `</div><div class="hint" style="margin-top:10px">⚠️ 尾盘策略为隔日短线模型，仅供研究；14:55 后不建议追高新开仓。</div>`;
   $('tp-result').innerHTML=html;
+  injectExportButton('tp-export-wrap', '尾盘选股');
   drawTailFundChart(r.fund_chart);
   picks.forEach((p,i)=>{
     const k=p.kline_mini; if(!k||!k.candles) return;
@@ -2062,8 +3254,10 @@ function rvIframe(container, html){
 
 // 1) 今日复盘：生成并自动归档
 async function doReview(){
+  const h = document.getElementById('rv-holdings')?.value?.trim() || '';
+  const url = h ? `/api/review?holdings=${encodeURIComponent(h)}` : '/api/review';
   $('r-result').innerHTML = loading('生成复盘中，需采集全市场行情/涨停跌停历史/外盘等，首次可能需要数分钟，请耐心等待...');
-  const r = await api('/api/review');
+  const r = await api(url);
   if(r.error){ $('r-result').innerHTML=`<div class="card down">错误：${r.error}</div>`; return; }
   rvIframe($('r-result'), r.html);
   const tip = r.record ? `<div class="hint" style="margin-top:8px">✅ 已归档（${r.date}），可在「历史复盘」查看或导出。</div>` : '';
@@ -2095,6 +3289,7 @@ async function loadReviewHistory(){
       <div class="rv-acts">
         <button onclick="viewReview('${it.id}')">查看</button>
         <a href="/api/review/export?id=${it.id}" download>导出HTML</a>
+        <a href="/api/review/export-png?id=${it.id}" download>导出图片</a>
         <button class="rv-del" onclick="delReview('${it.id}')">删除</button>
       </div>
     </div>`;
@@ -2110,6 +3305,7 @@ async function viewReview(id){
   $('rv-detail').innerHTML = `<div class="row" style="margin-top:14px">
       <span class="hint">📄 ${r.date} 复盘详情</span>
       <a href="/api/review/export?id=${id}" download style="margin-left:auto;font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);text-decoration:none">导出HTML</a>
+      <a href="/api/review/export-png?id=${id}" download style="font-size:12px;padding:5px 12px;border-radius:8px;border:1px solid var(--accent2);background:var(--panel);color:var(--accent2);text-decoration:none">导出图片</a>
     </div>
     <div id="rv-detail-frame"></div>`;
   rvIframe($('rv-detail-frame'), r.html);

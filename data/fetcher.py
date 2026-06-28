@@ -755,10 +755,10 @@ class DataFetcher:
                 if df is not None and not df.empty:
                     return df
 
-            # 兜底：AkShare 封装东财
+            # 兜底：AkShare 封装东财（东财不可达时直接跳过，降级到新浪）
             if ak is not None:
                 try:
-                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=2)
+                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=1)
                     if df is not None and not df.empty:
                         df.attrs["source"] = "东方财富(AkShare封装)实时快照兜底"
                         return df
@@ -769,7 +769,7 @@ class DataFetcher:
             if ak is not None:
                 print("[快照] 所有源不可用，切换新浪备用源（量比/换手/市值将降级）...")
                 try:
-                    s = _retry(lambda: ak.stock_zh_a_spot(), retries=2)
+                    s = _retry(lambda: ak.stock_zh_a_spot(), retries=1)
                     if s is not None and not s.empty:
                         s = s.copy()
                         code_col = next((c for c in s.columns if c in ("代码", "symbol", "code")), None)

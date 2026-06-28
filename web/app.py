@@ -30,6 +30,472 @@ def api_strategies():
     return {"strategies": list_strategies()}
 
 
+@app.get("/api/news-driven")
+def api_news_driven(force: bool = Query(False, description="强制重新扫描")):
+    """热点驱动板块分析：读取预存结果（秒级）或触发重新扫描。"""
+    from agents.news_orchestrator import get_latest_analysis, run_full_scan
+    from agents.llm import get_llm
+    try:
+        if not force:
+            # 优先读预存结果（极速响应）
+            latest = get_latest_analysis()
+            if latest:
+                return JSONResponse(latest)
+
+        # force=True 或无预存结果 → 执行完整扫描
+        llm = get_llm()
+        result = run_full_scan(llm=llm)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/news-driven/history")
+def api_news_driven_history(limit: int = Query(10)):
+    """热点驱动预分析历史列表。"""
+    from agents.news_orchestrator import get_analysis_history
+    try:
+        return {"items": get_analysis_history(limit=limit)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/news-driven/get")
+def api_news_driven_get(id: int = Query(...)):
+    """按ID获取某次预分析详情。"""
+    from agents.news_orchestrator import get_analysis_by_id
+    try:
+        result = get_analysis_by_id(id)
+        if not result:
+            return {"empty": True}
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/news-driven/cleanup")
+def api_news_driven_cleanup():
+    """手动触发7日数据清理。"""
+    from agents.news_orchestrator import cleanup_old_data
+    try:
+        result = cleanup_old_data()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/news-driven/dates")
+def api_news_driven_dates(range: str = Query("3d", description="3d=近三日, all=全部历史")):
+    """返回可用日期列表，供前端日期选择器。"""
+    from agents.news_orchestrator import get_recent_dates
+    try:
+        days = 3 if range == "3d" else 0
+        dates = get_recent_dates(days=days)
+        return JSONResponse({
+            "range": range,
+            "max_retention_days": 7,
+            "dates": dates,
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/news-driven/compare")
+def api_news_driven_compare(ids: str = Query(..., description="逗号分隔的分析记录ID，2-7个")):
+    """多日热点数据交叉分析（纯规则引擎，秒级）。"""
+    from agents.news_orchestrator import compare_analyses
+    try:
+        id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
+        if len(id_list) < 2:
+            return JSONResponse({"error": "至少选择 2 天数据"}, status_code=400)
+        if len(id_list) > 7:
+            return JSONResponse({"error": "最多选择 7 天数据"}, status_code=400)
+        result = compare_analyses(id_list)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/news-driven/compare-llm")
+def api_news_driven_compare_llm(ids: str = Query(..., description="逗号分隔的分析记录ID")):
+    """多日对比 + LLM 增强总结。"""
+    from agents.news_orchestrator import compare_analyses, _llm_enhance_summary
+    try:
+        id_list = [int(x.strip()) for x in ids.split(",") if x.strip()]
+        if len(id_list) < 2:
+            return JSONResponse({"error": "至少选择 2 天数据"}, status_code=400)
+        result = compare_analyses(id_list)
+        llm_summary = _llm_enhance_summary(
+            result["trends"]["sectors"],
+            result["comparison"],
+            result["days"],
+        )
+        if "error" not in llm_summary:
+            result["summary"] = llm_summary
+        else:
+            result["summary"]["llm_fallback"] = llm_summary.get("error", "LLM 不可用")
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/news-driven/compare-png")
+def api_news_driven_compare_png(payload: dict = Body(...)):
+    """导出多日对比分析为 PNG 图片。"""
+    from review.html_report import _html_to_image
+    import tempfile
+    try:
+        days = payload.get("days", [])
+        trends = payload.get("trends", {})
+        comparison = payload.get("comparison", {})
+        summary = payload.get("summary", {})
+
+        html = _build_compare_html(days, trends, comparison, summary)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html",
+                                         delete=False, encoding="utf-8") as f:
+            f.write(html)
+            tmp_html = f.name
+        png_path = _html_to_image(tmp_html, os.path.dirname(tmp_html))
+        os.unlink(tmp_html)
+
+        if not png_path or not os.path.exists(png_path):
+            return JSONResponse({"error": "截图生成失败，请确认已安装 playwright"}, status_code=500)
+        fname = f"热点对比分析_{dt.date.today().strftime('%Y%m%d')}.png"
+        with open(png_path, "rb") as f:
+            img_data = f.read()
+        os.unlink(png_path)
+        return Response(
+            content=img_data,
+            media_type="image/png",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+def _build_compare_html(days: list, trends: dict, comparison: dict, summary: dict) -> str:
+    """构建多日对比 PNG 导出 HTML 卡片。"""
+    days_rows = ""
+    for d in days:
+        top = (d.get("top_sectors") or [{}])[0]
+        days_rows += f"""<tr>
+<td style="padding:6px 0;border-bottom:1px solid #21262d;">{d.get('scan_time','')[:10]}</td>
+<td style="padding:6px 0;border-bottom:1px solid #21262d;">{d.get('news_count',0)}条</td>
+<td style="padding:6px 0;border-bottom:1px solid #21262d;">{d.get('sector_count',0)}板块</td>
+<td style="padding:6px 0;border-bottom:1px solid #21262d;">均分{d.get('avg_score',0)}</td>
+<td style="padding:6px 0;border-bottom:1px solid #21262d;">TOP: {top.get('name','—')} {top.get('score','')}</td>
+</tr>"""
+
+    common_rows = ""
+    for c in (comparison.get("common_sectors") or [])[:8]:
+        common_rows += f"""<tr>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{c['name']}</td>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{c['appearances']}天</td>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{c['avg_score']}分</td>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{c.get('trend','—')}</td>
+</tr>"""
+
+    unique_rows = ""
+    for day, items in (comparison.get("unique_per_day") or {}).items():
+        for it in items[:3]:
+            unique_rows += f"""<tr>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{day}</td>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{it['name']}</td>
+<td style="padding:4px 0;border-bottom:1px solid #21262d;">{it['score']}分</td>
+</tr>"""
+
+    highlights_html = "<br>".join(f"✅ {h}" for h in summary.get("highlights", [])[:5])
+    risks_html = "<br>".join(f"⚠️ {r}" for r in summary.get("risk_notes", [])[:3])
+    gen_by = summary.get("generated_by", "rule_engine")
+    gen_label = "🧠 AI生成" if gen_by == "llm" else "📋 规则引擎"
+
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,system-ui,sans-serif;padding:24px 28px;width:720px}}
+h1{{font-size:22px;background:linear-gradient(135deg,#58a6ff,#3fb950);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}}
+.sub{{font-size:12px;color:#8b949e;margin-bottom:18px}}
+.section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 18px;margin-bottom:14px}}
+.section h2{{font-size:15px;color:#58a6ff;margin-bottom:10px}}
+table{{width:100%;border-collapse:collapse;font-size:13px}}
+th{{text-align:left;color:#8b949e;font-size:11px;padding:4px 0;border-bottom:1px solid #30363d}}
+.footer{{text-align:center;font-size:10px;color:#484f58;margin-top:16px;border-top:1px solid #21262d;padding-top:12px}}
+.highlight{{color:#3fb950;font-size:12px;line-height:1.8}}
+.risk{{color:#f85149;font-size:12px;line-height:1.8}}
+.summary-text{{font-size:13px;line-height:1.7;color:#c9d1d9}}
+</style></head><body>
+<h1>🌍 热点驱动 · 多日对比分析</h1>
+<div class="sub">{len(days)}天数据 · 交叉分析 · {gen_label}</div>
+
+<div class="section">
+<h2>📊 日概览</h2>
+<table>
+<tr><th>日期</th><th>新闻</th><th>板块</th><th>均分</th><th>TOP板块</th></tr>
+{days_rows}
+</table>
+</div>
+
+<div class="section">
+<h2>🌐 共性板块</h2>
+<table>
+<tr><th>板块</th><th>出现</th><th>均分</th><th>趋势</th></tr>
+{common_rows or '<tr><td colspan="4" style="color:#8b949e;padding:8px 0;">无共性板块</td></tr>'}
+</table>
+</div>
+
+<div class="section">
+<h2>⚡ 特异板块</h2>
+<table>
+<tr><th>日期</th><th>板块</th><th>评分</th></tr>
+{unique_rows or '<tr><td colspan="3" style="color:#8b949e;padding:8px 0;">无特异板块</td></tr>'}
+</table>
+</div>
+
+<div class="section">
+<h2>📝 总结</h2>
+<div class="summary-text">{summary.get('text','暂无总结')}</div>
+</div>
+
+{('<div class="section"><div class="highlight">'+highlights_html+'</div></div>') if highlights_html else ''}
+{('<div class="section"><div class="risk">'+risks_html+'</div></div>') if risks_html else ''}
+
+<div class="footer">AI-Agent 智能分析系统 · 自动生成</div>
+</body></html>"""
+
+
+@app.get("/api/kline-health")
+def api_kline_health(sample: int = Query(100, description="采样数量"), pool: str = Query("", description="板块筛选，如 sh,sz,bj")):
+    """K线数据健康扫描：检测无日线数据的股票并自动分类故障原因。"""
+    from tools.kline_health_monitor import scan_kline_health
+    try:
+        if sample < 10 or sample > 5600:
+            return JSONResponse({"error": "sample 需在 10-5600 之间"}, status_code=400)
+        p = None
+        if pool:
+            prefixes = [x.strip().lower() for x in pool.split(",")]
+            from data.fetcher import get_fetcher
+            f = get_fetcher()
+            spot = f.get_market_spot()
+            code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+            codes = spot[code_col].astype(str).str.strip().str.zfill(6).tolist()
+            prefix_map = {"sh": "6", "sz": ("0", "3"), "bj": ("4", "8", "9")}
+            allowed = set()
+            for pfx in prefixes:
+                for k, v in prefix_map.items():
+                    if pfx == k:
+                        allowed.update(v if isinstance(v, tuple) else (v,))
+            if allowed:
+                p = [c for c in codes if c[0] in allowed]
+        report = scan_kline_health(pool=p, sample_size=sample)
+        return JSONResponse(report)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+def _compute_thermometer(fetcher, symbol: str, fund_flow: dict, index_pct: float = None) -> dict:
+    """计算情绪温度计（六维加权）。"""
+    try:
+        from agents.sentiment_thermometer import compute_sentiment_thermometer
+        return compute_sentiment_thermometer(fetcher, symbol, fund_flow=fund_flow, index_pct=index_pct)
+    except Exception as e:
+        return {"score": 50, "label": "正常", "emoji": "🌡️", "error": str(e),
+                "dimensions": {}, "summary": f"温度计计算异常: {e}"}
+
+
+@app.get("/api/realtime")
+def api_realtime(symbol: str = Query(..., description="股票代码")):
+    """实时分析：走势图MA破位 + 主力筹码 + 缩量状态。
+
+    返回结构：
+    {
+      "symbol", "name", "price", "change_pct",
+      "ma_signals": {
+        "price_vs_vwap": {"below": bool, "gap_pct": float},
+        "vs_ma5": {"below": bool, "gap_pct": float, "ma": float},
+        "vs_ma10": ...,
+        "vs_ma20": ...
+      },
+      "fund_flow": {"main_net_yi": float, "inflow_ratio": float, "direction": "流入/流出},
+      "volume_state": {"status": "极度缩量/温和缩量/正常/放量", "vol_ratio": float, "detail": str},
+      "kline_mini": { "dates": [...], "candles": [...], "ma5": [...], "ma10": [...], "ma20": [...] },
+    }
+    """
+    from data.fetcher import get_fetcher
+    import datetime as _dt
+    try:
+        f = get_fetcher()
+        code = str(symbol).strip().zfill(6)
+        name = f.get_name(code) or code
+
+        # ── 1. 实时快照 ──
+        spot = None
+        price = None
+        change_pct = None
+        turnover = None
+        vol_ratio = None
+        try:
+            spot = f.get_market_spot()
+            if spot is not None and not spot.empty:
+                code_col = next((c for c in spot.columns if c in ("代码","symbol","code")), None)
+                price_col = next((c for c in spot.columns if "最新价" in c or "现价" in c), None)
+                pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+                turn_col = next((c for c in spot.columns if "换手" in c), None)
+                vr_col = next((c for c in spot.columns if "量比" in c), None)
+                if code_col:
+                    row = spot[spot[code_col].astype(str).str.strip().str.zfill(6) == code]
+                    if not row.empty:
+                        r = row.iloc[0]
+                        price = float(r.get(price_col, 0)) if price_col else None
+                        change_pct = float(r.get(pct_col, 0)) if pct_col else None
+                        turnover = float(r.get(turn_col, 0)) if turn_col else None
+                        vol_ratio = float(r.get(vr_col, 0)) if vr_col else None
+        except Exception:
+            pass
+
+        # ── 2. K线（均线 + 缩量判断 + 迷你图表数据）──
+        df = f.get_kline(code, days=120)
+        ma_signals = {"price_vs_vwap": {"below": False, "gap_pct": 0, "note": ""}}
+        kline_mini = {"dates": [], "candles": [], "ma5": [], "ma10": [], "ma20": []}
+        volume_state = {"status": "未知", "vol_ratio_val": None, "detail": ""}
+
+        if df is not None and not df.empty and len(df) >= 20:
+            import pandas as pd
+            import numpy as np
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+            df["open"] = pd.to_numeric(df["open"], errors="coerce")
+            df["high"] = pd.to_numeric(df["high"], errors="coerce")
+            df["low"] = pd.to_numeric(df["low"], errors="coerce")
+
+            cls = df["close"].dropna()
+            vols = df["volume"].dropna()
+            opens = df["open"].dropna()
+            highs = df["high"].dropna()
+            lows = df["low"].dropna()
+
+            # 均线
+            ma5 = float(cls.tail(5).mean()) if len(cls) >= 5 else None
+            ma10 = float(cls.tail(10).mean()) if len(cls) >= 10 else None
+            ma20 = float(cls.tail(20).mean()) if len(cls) >= 20 else None
+
+            if price and ma5 and ma10 and ma20:
+                for ma_key, ma_val, label in [
+                    ("vs_ma5", ma5, "5日"), ("vs_ma10", ma10, "10日"), ("vs_ma20", ma20, "20日")]:
+                    gap = round((price - ma_val) / ma_val * 100, 2)
+                    ma_signals[ma_key] = {
+                        "below": gap < 0,
+                        "gap_pct": gap,
+                        "ma": round(ma_val, 2),
+                        "label": f"{label}均线{ma_val:.2f} ({'跌破' if gap < 0 else '站上'} {abs(gap):.2f}%)",
+                    }
+
+                # VWAP 近似：用 (当日开盘+收盘)/2 作为"分时均线"代理
+                latest_open = float(opens.iloc[-1]) if len(opens) > 0 else price
+                vwap_approx = (latest_open + price) / 2
+                vwap_gap = round((price - vwap_approx) / vwap_approx * 100, 2)
+                ma_signals["price_vs_vwap"] = {
+                    "below": vwap_gap < 0,
+                    "gap_pct": vwap_gap,
+                    "vwap_approx": round(vwap_approx, 2),
+                    "note": f"分时均线≈{vwap_approx:.2f} ({'已跌破' if vwap_gap < 0 else '站上'} {abs(vwap_gap):.2f}%)（无分钟K线，用 (开盘+现价)/2 估算）",
+                }
+
+            # 缩量判断：近5日 vs 近20日均量
+            if len(vols) >= 20:
+                vol5_avg = float(vols.tail(5).mean())
+                vol20_avg = float(vols.tail(20).mean())
+                vr_val = round(vol5_avg / vol20_avg, 2) if vol20_avg > 0 else 1.0
+                volume_state["vol_ratio_val"] = vr_val
+                if vr_val < 0.5:
+                    volume_state["status"] = "极度缩量"
+                    volume_state["detail"] = f"近5日均量仅为近20日的{vr_val*100:.0f}%（<50%），交投极度清淡"
+                elif vr_val < 0.7:
+                    volume_state["status"] = "温和缩量"
+                    volume_state["detail"] = f"近5日均量是近20日的{vr_val*100:.0f}%（<70%），量能明显萎缩"
+                elif vr_val < 0.9:
+                    volume_state["status"] = "轻微缩量"
+                    volume_state["detail"] = f"近5日均量{vr_val*100:.0f}%，略低于20日均量"
+                elif vr_val < 1.5:
+                    volume_state["status"] = "正常"
+                    volume_state["detail"] = f"近5日均量{vr_val*100:.0f}%，量能平稳"
+                else:
+                    volume_state["status"] = "放量"
+                    volume_state["detail"] = f"近5日均量是近20日的{vr_val*100:.0f}%（>150%），明显放量"
+
+            # 迷你K线数据（最近60根）
+            recent = df.tail(60)
+            dates = recent["date"].tolist()
+            kline_mini = {
+                "dates": [str(d) for d in dates],
+                "candles": [
+                    [float(recent.iloc[i]["open"]), float(recent.iloc[i]["close"]),
+                     float(recent.iloc[i]["low"]), float(recent.iloc[i]["high"])]
+                    for i in range(len(recent))
+                ],
+                "ma5": [round(float(cls.iloc[max(0,i-4):i+1].mean()), 2) for i in range(len(cls.tail(60)))],
+                "ma10": [round(float(cls.iloc[max(0,i-9):i+1].mean()), 2) for i in range(len(cls.tail(60)))],
+                "ma20": [round(float(cls.iloc[max(0,i-19):i+1].mean()), 2) for i in range(len(cls.tail(60)))],
+            }
+
+        # ── 3. 主力资金流 ──
+        # raw_ff 保留原始格式（中文键），传给温度计；fund_flow 为处理后的前端展示格式
+        raw_ff = {}  # 原始数据，用于温度计
+        fund_flow = {"main_net_yi": 0, "inflow_ratio": 0, "direction": "—",
+                     "detail": "资金数据暂缺（非交易时段或接口不可用）",
+                     "big_net_yi": 0, "super_net_yi": 0}
+        fund_available = False
+        try:
+            ff = f.get_fund_flow(code)
+            if ff:
+                raw_ff = ff
+                net = float(ff.get("主力净流入-净额", 0) or 0)
+                net_yi = round(net / 1e8, 2)
+                big_yi = round(float(ff.get("大单净流入-净额", 0) or 0) / 1e8, 2)
+                super_yi = round(float(ff.get("超大单净流入-净额", 0) or 0) / 1e8, 2)
+
+                fund_available = True
+                if net_yi > 0:
+                    direction = "净流入"
+                elif net_yi < 0:
+                    direction = "净流出"
+                else:
+                    direction = "平盘"
+
+                ratio = ff.get("主力净流入-净占比", 0) or 0
+                fund_flow = {
+                    "main_net_yi": net_yi,
+                    "big_net_yi": big_yi,
+                    "super_net_yi": super_yi,
+                    "inflow_ratio": round(float(ratio), 2) if ratio else 0,
+                    "direction": direction,
+                    "detail": f"主力{direction} {abs(net_yi):.2f}亿（超大单{abs(super_yi):.2f}亿 + 大单{abs(big_yi):.2f}亿）",
+                }
+        except Exception as e:
+            fund_flow["detail"] = f"资金数据获取异常: {e}"
+
+        # 温度计：优先传原始格式 raw_ff（中文键），数据缺失时传空让温度计自取兜底
+        thermo_fund_flow = raw_ff if raw_ff else None
+
+        result = {
+            "symbol": code,
+            "name": name,
+            "price": round(price, 2) if price else None,
+            "change_pct": round(change_pct, 2) if change_pct is not None else None,
+            "turnover": round(turnover, 2) if turnover else None,
+            "vol_ratio": round(vol_ratio, 2) if vol_ratio else None,
+            "ma_signals": ma_signals,
+            "fund_flow": fund_flow,
+            "volume_state": volume_state,
+            "kline_mini": kline_mini,
+            "sentiment_thermometer": _compute_thermometer(f, code, thermo_fund_flow, change_pct),
+            "as_of": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 @app.get("/api/analyze")
 def api_analyze(symbol: str = Query(..., description="股票代码")):
     from agents.orchestrator import AgentOrchestrator
@@ -118,6 +584,39 @@ def api_analyze_export(id: str = Query(...)):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+@app.get("/api/analyze/export-png")
+def api_analyze_export_png(id: str = Query(...)):
+    """导出某条深度分析为 PNG 图片（下载）。"""
+    from report.analysis_report import get_report
+    from review.html_report import _html_to_image
+    import tempfile
+    try:
+        rec = get_report(id)
+        if not rec:
+            return JSONResponse({"error": "报告不存在"}, status_code=404)
+        html = rec.get("html") or ""
+        if not html:
+            return JSONResponse({"error": "报告无 HTML 内容"}, status_code=400)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False, encoding="utf-8") as f:
+            f.write(html)
+            tmp_html = f.name
+        png_path = _html_to_image(tmp_html, os.path.dirname(tmp_html))
+        os.unlink(tmp_html)
+        if not png_path or not os.path.exists(png_path):
+            return JSONResponse({"error": "截图生成失败，请确认已安装 playwright"}, status_code=500)
+        fname = f"analysis-{rec.get('symbol','report')}-{rec.get('created_at','')[:10]}.png"
+        with open(png_path, "rb") as f:
+            img_data = f.read()
+        os.unlink(png_path)
+        return Response(
+            content=img_data,
+            media_type="image/png",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 @app.get("/api/backtest")
 def api_backtest(
     symbol: str = Query(...),
@@ -181,11 +680,12 @@ def api_kline(symbol: str = Query(...), days: int = Query(120)):
 
 
 @app.get("/api/review")
-def api_review():
+def api_review(holdings: str = Query(default="", description="可选持仓股，逗号分隔 如 600519,000858")):
     """生成今日复盘并自动落库（返回 HTML + 落库记录信息）。"""
     from review.html_report import generate_and_store
     try:
-        res = generate_and_store(store=True)
+        hlist = [h.strip().zfill(6) for h in holdings.split(",") if h.strip()] if holdings.strip() else []
+        res = generate_and_store(store=True, holdings=hlist)
         return {"html": res["html"], "date": res.get("date"),
                 "record": res.get("record")}
     except Exception as e:
@@ -237,6 +737,40 @@ def api_review_export(id: str = Query(..., description="复盘记录 id")):
         return Response(
             content=html,
             media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review/export-png")
+def api_review_export_png(id: str = Query(..., description="复盘记录 id")):
+    """将某条复盘渲染为 PNG 图片下载。"""
+    from review.store import get_review
+    from review.html_report import _html_to_image
+    import tempfile
+    try:
+        rec = get_review(id)
+        if not rec:
+            return JSONResponse({"error": "复盘记录不存在"}, status_code=404)
+        html = rec.get("html") or ""
+        if not html:
+            return JSONResponse({"error": "复盘记录无 HTML 内容"}, status_code=400)
+        # 先写临时 HTML，再截图
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False, encoding="utf-8") as f:
+            f.write(html)
+            tmp_html = f.name
+        png_path = _html_to_image(tmp_html, os.path.dirname(tmp_html))
+        os.unlink(tmp_html)
+        if not png_path or not os.path.exists(png_path):
+            return JSONResponse({"error": "截图生成失败，请确认已安装 playwright"}, status_code=500)
+        fname = f"review-{rec.get('date','report')}.png"
+        with open(png_path, "rb") as f:
+            img_data = f.read()
+        os.unlink(png_path)
+        return Response(
+            content=img_data,
+            media_type="image/png",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
     except Exception as e:
@@ -383,6 +917,44 @@ def api_recommend(count: int = Query(5), date: str = Query(""),
         return JSONResponse(res)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/recommend/llm-pipeline")
+def api_recommend_llm_pipeline(count: int = Query(5)):
+    """LLM 两阶段智能选股：Stage1 识别主线 → Stage2 偏离度校验过滤。
+
+    与普通 /api/recommend 的区别：
+    - Stage1：LLM 分析全市场数据，提取主线板块作为选股硬约束
+    - Stage2：LLM 对规则筛出的候选股逐只校验是否偏离主线，过滤离题标的
+    - 两阶段均失败时自动降级到纯规则模式
+    """
+    status = _recommend_regen_status()
+    if not status["can_regenerate"]:
+        return JSONResponse({"error": status["reason"], **status}, status_code=403)
+
+    from recommend.engine import RecommendEngine, RECOMMEND_POOL
+    from recommend.llm_pipeline import run_two_stage_pipeline, _finish_pipeline_status
+    try:
+        eng = RecommendEngine()
+        base_date = dt.date.today().strftime("%Y-%m-%d")
+        result = run_two_stage_pipeline(
+            fetcher=eng.fetcher,
+            engine=eng,
+            base_date=base_date,
+            pool=list(RECOMMEND_POOL),
+            mode="daily",
+        )
+        return JSONResponse(result)
+    except Exception as e:
+        _finish_pipeline_status()
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/recommend/llm-status")
+def api_recommend_llm_status():
+    """LLM Pipeline 实时进度（前端每2秒轮询一次）。"""
+    from recommend.llm_pipeline import get_pipeline_status
+    return JSONResponse(get_pipeline_status())
 
 
 def _recommend_view(db, base_date: str, mode: str = "daily") -> dict:
@@ -792,6 +1364,30 @@ def _is_realtime_window() -> bool:
     return dt.time(14, 30) <= t <= dt.time(14, 50)
 
 
+@app.get("/api/tailpick-v2")
+def api_tailpick_v2(count: int = Query(5), force: bool = Query(False)):
+    """尾盘专属选股引擎 v2 — 午后动量+VWAP+抢筹+回落检测。"""
+    from tailpick.tail_engine import TailEngine
+    try:
+        eng = TailEngine()
+        result = eng.run(count=count, force=force)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/tailpick-ai")
+def api_tailpick_ai(count: int = Query(5), force: bool = Query(False)):
+    """AI协同尾盘荐股 — Layer1 LLM市场感知 + Layer2 ML拉升预测 + Layer3 LLM审查。"""
+    from tailpick.ai_tail_engine import AITailEngine
+    try:
+        eng = AITailEngine()
+        result = eng.run(count=count, force=force)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 @app.get("/api/tail-recommend")
 def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
     """尾盘荐股：14:30 盘中推荐，今日尾盘买入、次日验证。
@@ -820,20 +1416,174 @@ def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
             res["tailpick_mode"] = True
             return JSONResponse(res)
 
-        # 仅在实时窗口内清除数据缓存
+        # 仅在实时窗口或 force=True 时清除市场级别缓存
         in_window = _is_realtime_window()
-        if in_window:
+        should_clear = in_window or force
+        if should_clear:
             from data.cache import invalidate_pattern
-            cleared = invalidate_pattern()
-            print(f"[尾盘荐股] 实时窗口 {dt.datetime.now():%H:%M}，已清除 {cleared} 个缓存，A-Stock 实时拉取...")
+            # 清除全市场快照 + 板块 + 指数 + K线缓存（确保拿到当日最新数据）
+            cleared = 0
+            for prefix in ("spot:all:", "as_spot_", "index_spot", "as_sectors:",
+                           "as_lhb_map", "kline:"):
+                cleared += invalidate_pattern(prefix)
+            label = "实时窗口" if in_window else "强制刷新(force=True)"
+            print(f"[尾盘荐股] {label} {dt.datetime.now():%H:%M}，清除 {cleared} 个缓存，A-Stock 实时拉取...")
         else:
             print(f"[尾盘荐股] 非实时窗口 {dt.datetime.now():%H:%M}，使用缓存数据（与 14:30 一致）")
 
         eng = RecommendEngine()
-        res = eng.run(count=count, mode=MODE)
+        # 尾盘模式：as_of=today，_resolve_base_date 会正确返回今天
+        # （当K线无当日条形时自动回退到today_str，非退回昨天）
+        os.environ["REC_SCAN_MAX"] = str(min(count * 3, 15))
+        res = eng.run(count=count, mode=MODE, skip_llm_review=True, as_of=today_str)
         if res.get("error"):
             return JSONResponse(res, status_code=400)
         return JSONResponse({**res, "tailpick_mode": True, "data_realtime": in_window})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+def _build_fugupan_card_html(picks: list, cycle: dict, summary: dict,
+                              weights: dict, as_of: str) -> str:
+    """构建复盘哥选股结果导出图片HTML（含代码+名称）。"""
+    phase = cycle.get("phase", "?")
+    score = cycle.get("score", 0)
+    mantra = summary.get("mantra", "")
+    sutras = summary.get("heart_sutras", [])[:3]
+    warnings = summary.get("warnings", [])
+
+    score_color = "#f0b429" if score >= 75 else "#58a6ff" if score >= 55 else "#8b949e"
+    phase_cls = {"高潮期": "#f0b429", "复苏期": "#3fb950",
+                 "退潮期": "#f85149", "冰点期": "#8b949e"}.get(phase, "#8b949e")
+
+    picks_html = ""
+    for i, p in enumerate(picks, 1):
+        ti = p.get("theme_info", {})
+        pi = p.get("pos_info", {})
+        rank_emoji = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
+        picks_html += f"""<div class="pick-row">
+<span class="rank">{rank_emoji}</span>
+<span class="name">{p.get('name','?')}</span>
+<span class="code">{p.get('symbol','?')}</span>
+<span class="score">{p.get('score',0):.0f}分</span>
+<div class="dims">
+<span>天时{p.get('cycle',0):.0f}</span>
+<span>人和{p.get('theme',0):.0f}</span>
+<span>身位{p.get('position',0):.0f}</span>
+<span>形态{p.get('structure',0):.0f}</span>
+</div>
+<div class="info">📌 {ti.get('sector','其他')} · {ti.get('role','通用')} · 换手{pi.get('turnover','?')}% · 量比{pi.get('vol_ratio','?')}</div>
+</div>"""
+
+    warnings_html = ""
+    if warnings:
+        warnings_html = "<div class=\"warn\">" + "<br>".join(
+            f"⚠️ {w}" for w in warnings) + "</div>"
+
+    return f"""<!DOCTYPE html><html><head><meta charset=\"utf-8\">
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#0d1117;color:#c9d1d9;font-family:-apple-system,system-ui,sans-serif;padding:28px 32px;width:780px}}
+.header{{text-align:center;margin-bottom:20px}}
+.header h1{{font-size:24px;background:linear-gradient(135deg,#f0b429,#ff8c00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}}
+.header .sub{{font-size:12px;color:#8b949e}}
+.phase-row{{display:flex;gap:14px;justify-content:center;margin-bottom:18px;flex-wrap:wrap}}
+.phase-box{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 18px;text-align:center;min-width:120px}}
+.phase-box .v{{font-size:22px;font-weight:700;margin-bottom:3px}}
+.phase-box .l{{font-size:11px;color:#8b949e}}
+.mantra{{text-align:center;font-size:13px;color:{score_color};margin-bottom:14px;font-style:italic}}
+.sutras{{text-align:center;font-size:11px;color:#8b949e;margin-bottom:18px;border-top:1px solid #21262d;border-bottom:1px solid #21262d;padding:10px 0}}
+.warn{{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:11px}}
+.picks-title{{font-size:16px;font-weight:700;margin-bottom:10px;color:#58a6ff}}
+.pick-row{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 16px;margin-bottom:10px}}
+.pick-row .rank{{font-size:18px;margin-right:8px}}
+.pick-row .name{{font-size:16px;font-weight:700;color:#79c0ff;margin-right:8px}}
+.pick-row .code{{font-size:12px;color:#8b949e;background:#21262d;padding:2px 7px;border-radius:4px;margin-right:12px}}
+.pick-row .score{{font-size:20px;font-weight:700;color:{score_color};float:right}}
+.dims{{display:flex;gap:12px;margin-top:6px;font-size:11px;color:#8b949e}}
+.dims span{{background:#21262d;padding:2px 8px;border-radius:4px}}
+.info{{font-size:11px;color:#8b949e;margin-top:4px}}
+.footer{{text-align:center;font-size:10px;color:#484f58;margin-top:20px;border-top:1px solid #21262d;padding-top:12px}}
+</style></head><body>
+<div class="header">
+<h1>🧠 复盘哥 · 三维共振选股</h1>
+<div class="sub">{as_of} · 情绪周期+龙头战法+养家心法</div>
+</div>
+<div class="phase-row">
+<div class="phase-box"><div class="v" style="color:{phase_cls}">{phase}</div><div class="l">情绪周期</div></div>
+<div class="phase-box"><div class="v" style="color:{score_color}">{score}</div><div class="l">周期评分</div></div>
+<div class="phase-box"><div class="v">{len(picks)}</div><div class="l">精选标的</div></div>
+</div>
+<div class="mantra">「{mantra}」</div>
+<div class="sutras">{' ｜ '.join(sutras or ['交易你所见，非你所想。'])}</div>
+{warnings_html}
+<div class="picks-title">🎯 四维评分精选（天时30%+人和25%+身位25%+形态20%）</div>
+{picks_html}
+<div class="footer">以上内容仅供研究交流，不构成任何投资建议 · 复盘哥选股引擎</div>
+</body></html>"""
+
+
+# ---------------- 复盘哥选股（三维共振）----------------
+@app.get("/api/fugupan")
+def api_fugupan(count: int = Query(8, description="返回标的数量")):
+    """复盘哥选股 — 情绪周期+龙头战法+养家心法三维共振。
+
+    四维评分：天时(30%) + 人和(25%) + 地利·身位(25%) + 地利·形态(20%)
+    核心约束：非主流板块拒绝 / 退潮期空仓 / 封板率<70%警示
+    """
+    from recommend.fugupan_stock import FugupanEngine
+    try:
+        if count < 1 or count > 20:
+            return JSONResponse({"error": "count需在1-20之间"}, status_code=400)
+        eng = FugupanEngine()
+        result = eng.run(count=count)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/fugupan/export-png")
+def api_fugupan_export_png(payload: dict = Body(...)):
+    """将复盘哥选股结果导出为PNG图片。
+
+    Body: {"cycle": {...}, "picks": [...], "summary": {...},
+           "theme_analysis": {...}, "weights": {...}, "as_of": "..."}
+    """
+    from review.html_report import _html_to_image
+    import tempfile
+    try:
+        picks = payload.get("picks") or []
+        cycle = payload.get("cycle") or {}
+        summary = payload.get("summary") or {}
+        weights = payload.get("weights") or {}
+        as_of = payload.get("as_of", "")
+
+        if not picks:
+            return JSONResponse({"error": "无选股结果可导出"}, status_code=400)
+
+        # 构建精美HTML卡片
+        html = _build_fugupan_card_html(picks, cycle, summary, weights, as_of)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html",
+                                         delete=False, encoding="utf-8") as f:
+            f.write(html)
+            tmp_html = f.name
+
+        png_path = _html_to_image(tmp_html, os.path.dirname(tmp_html))
+        os.unlink(tmp_html)
+
+        if not png_path or not os.path.exists(png_path):
+            return JSONResponse({"error": "截图生成失败，请确认已安装playwright"}, status_code=500)
+
+        fname = f"fugupan-{as_of[:10] if as_of else 'report'}.png"
+        with open(png_path, "rb") as f:
+            img_data = f.read()
+        os.unlink(png_path)
+        return Response(
+            content=img_data,
+            media_type="image/png",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 

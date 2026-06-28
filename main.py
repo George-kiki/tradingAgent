@@ -249,6 +249,49 @@ def cmd_web(args):
     uvicorn.run("web.app:app", host=settings.web_host, port=settings.web_port, reload=False)
 
 
+def cmd_kline_health(args):
+    from tools.kline_health_monitor import scan_kline_health, print_report
+    pool = None
+    if args.pool:
+        from data.fetcher import get_fetcher
+        f = get_fetcher()
+        spot = f.get_market_spot()
+        code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+        codes = spot[code_col].astype(str).str.strip().str.zfill(6).tolist()
+        prefixes = [p.strip().lower() for p in args.pool.split(",")]
+        prefix_map = {"sh": "6", "sz": ("0", "3"), "bj": ("4", "8", "9")}
+        allowed = set()
+        for pfx in prefixes:
+            for k, v in prefix_map.items():
+                if pfx == k:
+                    allowed.update(v if isinstance(v, tuple) else (v,))
+        if allowed:
+            pool = [c for c in codes if c[0] in allowed]
+    report = scan_kline_health(pool=pool, sample_size=args.sample, full=args.full)
+    if args.json:
+        import json
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print_report(report)
+
+
+def cmd_news_driven(args):
+    """热点驱动扫描CLI入口。"""
+    from agents.news_orchestrator import run_full_scan
+    from agents.llm import get_llm
+    console.print("[bold cyan]🌍 热点驱动扫描启动...[/bold cyan]")
+    result = run_full_scan(llm=get_llm())
+    sectors = result.get("sectors", [])
+    console.print(f"\n[bold green]✅ 扫描完成[/bold green]")
+    console.print(f"  抓取新闻: {result.get('news_count', 0)}")
+    console.print(f"  过滤保留: {result.get('filtered_count', 0)}")
+    console.print(f"  利好板块: {len(sectors)}")
+    for i, s in enumerate(sectors[:5], 1):
+        console.print(f"  {i}. {s.get('sector','?')} (评分{s.get('bullish_score',0)}) - {s.get('catalyst','')[:60]}")
+        for st in (s.get("stocks") or [])[:3]:
+            console.print(f"     → {st.get('name')}({st.get('code')}) {st.get('score')}分")
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="AI-Agent A股智能分析系统")
     sub = p.add_subparsers(dest="command", required=True)
@@ -302,6 +345,18 @@ def build_parser():
 
     w = sub.add_parser("web", help="启动 Web 服务")
     w.set_defaults(func=cmd_web)
+
+    kh = sub.add_parser("kline-health", help="K线数据健康扫描（采样200只，分类故障原因）")
+    kh.add_argument("--sample", type=int, default=200)
+    kh.add_argument("--full", action="store_true")
+    kh.add_argument("--pool", type=str, default=None, help="sh,sz,bj")
+    kh.add_argument("--json", action="store_true")
+    kh.add_argument("--alert-thresh", type=float, default=10.0)
+    kh.set_defaults(func=cmd_kline_health)
+
+    nd = sub.add_parser("news-driven", help="热点驱动扫描：全球新闻→多Agent→板块映射")
+    nd.set_defaults(func=cmd_news_driven)
+
     return p
 
 

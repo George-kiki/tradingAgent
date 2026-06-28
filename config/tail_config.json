@@ -1,0 +1,155 @@
+{
+  "strategy": "尾盘荐股 v3.0",
+  "description": "14:30-14:55盘中选股，尾盘买入，次日开盘卖出。10策略加权+市场环境自适应+AI反思闭环。",
+  "version": "3.0",
+  "updated": "2026-06-25",
+
+  "1_timing": {
+    "buy_window": "14:30-14:55",
+    "sell_window": "次日 09:25 集合竞价 / 09:30 开盘",
+    "hold_period": "隔夜（T日尾盘买入 → T+1日开盘卖出）",
+    "time_gate": "仅交易日 13:00-15:00 开放，14:00前为预览"
+  },
+
+  "2_selection": {
+    "universe": {
+      "tier1": "动态主线池（近一周最强3-4个板块成分股）",
+      "tier2": "核心蓝筹池（45只沪深主板大盘股）",
+      "tier3": "全市场活跃池（涨幅>2%且量比>1.2的TOP200）",
+      "max_scan": 30
+    },
+    "hard_filters": {
+      "pct_range": [0.5, 6.0],
+      "pct_range_weak_market": [0.5, 4.0],
+      "pct_range_strong_market": [0.5, 5.0],
+      "min_amount_yi": 0.8,
+      "min_turnover_pct": 2.0,
+      "min_volume_ratio": 1.0,
+      "exclude_st": true,
+      "exclude_limit_up": 9.5,
+      "exclude_limit_down": -9.5,
+      "include_chi_next": false,
+      "include_star_market": false
+    },
+    "strategy_weights": {
+      "initial": "按市场环境自适应分组",
+      "trend_group": ["ma_cross", "macd", "trend", "breakout", "vol_break"],
+      "mean_rev_group": ["kdj", "boll", "rsi", "grid"],
+      "pattern_group": ["chan"],
+      "strong_trend": {"trend": 1.4, "mean_rev": 0.6, "pattern": 1.0},
+      "sideways": {"trend": 0.6, "mean_rev": 1.4, "pattern": 1.0},
+      "weak": {"trend": 0.7, "mean_rev": 0.8, "pattern": 0.7}
+    },
+    "scoring": {
+      "strategy_consensus": "10策略加权平均分数(-1~+1)",
+      "multifactor_boost": "基本面/北向/龙虎榜/量能/利好 五维加分(上限±0.3)",
+      "final_min_threshold": 0.10
+    }
+  },
+
+  "3_anti_fake_signal": {
+    "tail_lure_rejection": {
+      "criteria": [
+        "14:50后5分钟内涨幅>2%且无放量 → 尾盘诱多，拒绝",
+        "14:50后跌幅>1%且带量 → 尾盘杀跌，拒绝",
+        "涨幅>5%但主力净流出>1000万 → 高位出货，拒绝"
+      ],
+      "liquidity_check": {
+        "min_last_5min_amount": "近5分钟成交额 > 全日均值的15%",
+        "bid_ask_spread_max": "卖一买一价差 < 0.3%"
+      }
+    },
+    "volume_anomaly_filter": {
+      "criteria": [
+        "量比>4.0 且 涨幅<1.5% → 异常放量滞涨，拒绝",
+        "量比<0.6 → 冷门缩量，拒绝"
+      ]
+    }
+  },
+
+  "4_risk_control": {
+    "per_trade": {
+      "max_position_pct": 0.20,
+      "max_portfolio_exposure": 0.80,
+      "hard_stop_loss_pct": -2.5,
+      "trailing_stop": "从当日最高价回撤1.5%",
+      "take_profit_t1": "+2.5%（次日高开≥2.5%即分批止盈）",
+      "time_stop": "次日09:45不涨即出"
+    },
+    "portfolio": {
+      "max_daily_drawdown": -3.0,
+      "max_consecutive_losses": 5,
+      "emergency_stop": "单日浮亏>3%且市场情绪<35 → 全线清仓"
+    },
+    "market_environment_filter": {
+      "reject_all": "市场情绪<30分 → 不生成任何推荐",
+      "reduce_count": "市场情绪30-45分 → 最多推荐2只",
+      "normal": "市场情绪45-70分 → 正常推荐5只",
+      "aggressive": "市场情绪>70分 → 可推荐5-8只"
+    },
+    "sector_concentration": {
+      "max_per_sector": 2,
+      "avoid_sectors": "由Layer1 LLM动态识别（如核电/光伏退潮期）"
+    }
+  },
+
+  "5_execution_params": {
+    "signal_to_order": {
+      "max_delay_seconds": 60,
+      "price_type": "限价单",
+      "limit_price_formula": "min(卖一价, 最新价×1.002)",
+      "order_timeout": 180,
+      "retry_on_partial_fill": true
+    },
+    "slippage": {
+      "buy_slippage": 0.001,
+      "sell_slippage": 0.001,
+      "max_acceptable_slippage": 0.003
+    },
+    "commission": {
+      "rate": 0.00025,
+      "min_commission": 5.0,
+      "stamp_duty_sell_only": 0.001
+    },
+    "position_sizing": {
+      "method": "等权分配",
+      "per_stock_max": 0.20,
+      "lot_rounding": "整手(100股)向下取整",
+      "min_order_amount": 5000
+    }
+  },
+
+  "6_ai_pipeline": {
+    "layer1_market_perception": {
+      "enabled": true,
+      "frequency": "每次14:30触发",
+      "output": "市场阶段(strong_trend/sideways/weak) + 动态阈值 + 板块聚焦/回避",
+      "fallback": "量化规则(20日/60日均线判定)"
+    },
+    "layer2_ml_prediction": {
+      "enabled": true,
+      "model": "LightGBM 启发式规则",
+      "features": 15,
+      "predict_target": "14:30后至收盘涨幅>1%的概率",
+      "threshold": 0.55
+    },
+    "layer3_llm_review": {
+      "enabled": true,
+      "scope": "Top10候选",
+      "review_dimensions": ["基本面", "消息面", "技术面"],
+      "score_range": [-0.08, 0.05]
+    },
+    "layer4_risk_scoring": {
+      "enabled": true,
+      "components": ["午后回落", "主力资金", "连涨透支", "RSI过热", "市场弱势"],
+      "output": "次日开盘方向预测 + 止损位"
+    }
+  },
+
+  "7_monitoring": {
+    "win_rate_alert": "滚动5日胜率<40% → 暂停策略，人工复核",
+    "max_drawdown_alert": "累计回撤>8% → 减仓至50%",
+    "daily_log": "每笔信号记录：时间/标的/价格/原因/实际成交/次日结果",
+    "weekly_review": "每周末汇总胜率/盈亏比/最大连亏，触发自动反思迭代"
+  }
+}

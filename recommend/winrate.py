@@ -46,11 +46,56 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
     """结算某个推荐批次：逐只计算次日收益、判定胜负，并汇总胜率。
 
     返回该批次胜率汇总 dict；若次日数据尚不可得则返回 None（未结算）。
+
+    结算策略：
+    - 优先使用 K线次日收盘价（最标准，T+1日K线）
+    - K线无次日数据时（如收盘后K线尚未更新），回退到全市场快照的当日收盘价
     """
     fetcher = fetcher or get_fetcher()
     recs = db.get_recommendations(base_date, mode=mode)
     if not recs:
         return None
+
+    import datetime as _dt
+    today_str = _dt.date.today().isoformat()
+
+    # 只有确认次日数据已存在时才结算
+    # base_date 的次日 = today → 可结算（盘后快照已有收盘价）
+    # base_date 的次日 > today → 不可结算（未来）
+    try:
+        bd = _dt.date.fromisoformat(base_date)
+        eval_date_expected = (bd + _dt.timedelta(days=1)).isoformat()
+    except Exception:
+        eval_date_expected = today_str
+
+    # 若预期评估日还没到，提前退出
+    if eval_date_expected > today_str:
+        return None
+
+    # 预拉取全市场快照（供K线缺失时兜底），带缓存TTL避免重复拉取
+    spot = None
+
+    def _spot_close(symbol: str) -> Optional[tuple[str, float]]:
+        """从快照中取 symbol 的当日收盘价作为评估价。"""
+        nonlocal spot
+        if spot is None:
+            try:
+                from data.cache import invalidate_pattern
+                invalidate_pattern("spot:all:")
+                spot = fetcher.get_market_spot()
+            except Exception:
+                return None
+        if spot is None or spot.empty:
+            return None
+        code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+        price_col = next((c for c in spot.columns if "最新价" in c or "现价" in c), None)
+        if not code_col or not price_col:
+            return None
+        target = str(symbol).strip().zfill(6)
+        row = spot[spot[code_col].astype(str).str.strip().str.zfill(6) == target]
+        if row.empty:
+            return None
+        return today_str, float(row.iloc[0][price_col])
 
     win_th = settings.win_pct_threshold
     settled = 0
@@ -58,10 +103,18 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
         if db.has_result(base_date, rec["symbol"], mode=mode):
             settled += 1
             continue
-        df = fetcher.get_kline(rec["symbol"], days=400)
+
+        sym = rec["symbol"]
+        df = fetcher.get_kline(sym, days=400)
         nxt = _next_trading_close(df, base_date)
+
+        # K线无次日数据时 → 用今日快照收盘价兜底（收盘后K线尚未更新场景）
+        if nxt is None and eval_date_expected == today_str:
+            nxt = _spot_close(sym)
+
         if nxt is None:
             continue
+
         eval_date, eval_close = nxt
         entry = rec.get("entry_price")
         if not entry:

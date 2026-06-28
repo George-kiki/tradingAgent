@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每日盘后复盘 · 2026年06月18日</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0d1117; color: #c9d1d9; line-height: 1.7; padding: 20px; max-width: 900px; margin: 0 auto; }
+  h1 { text-align: center; font-size: 24px; color: #58a6ff; margin: 20px 0 8px; letter-spacing: 2px; }
+  .subtitle { text-align: center; color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 18px; color: #79c0ff; border-left: 4px solid #58a6ff; padding-left: 12px; margin: 28px 0 14px; }
+  h3 { font-size: 15px; color: #d2a8ff; margin: 18px 0 10px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 20px; margin: 12px 0; }
+  .card-gold { border-left: 3px solid #f0b429; }
+  .card-red { border-left: 3px solid #f85149; }
+  .card-green { border-left: 3px solid #3fb950; }
+  .card-blue { border-left: 3px solid #58a6ff; }
+  .card-purple { border-left: 3px solid #d2a8ff; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .tag-red { background: #f8514922; color: #f85149; }
+  .tag-green { background: #3fb95022; color: #3fb950; }
+  .tag-blue { background: #58a6ff22; color: #58a6ff; }
+  .tag-gold { background: #f0b42922; color: #f0b429; }
+  .tag-purple { background: #d2a8ff22; color: #d2a8ff; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  th { background: #21262d; color: #8b949e; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 1px solid #30363d; }
+  td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+  tr:hover td { background: #161b22; }
+  .red { color: #f85149; }
+  .green { color: #3fb950; }
+  .gold { color: #f0b429; }
+  .blue { color: #58a6ff; }
+  .dim { color: #8b949e; }
+  .big-num { font-size: 28px; font-weight: 700; }
+  .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+  .stat-box { flex: 1; min-width: 120px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+  .stat-box .label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .stat-box .value { font-size: 22px; font-weight: 700; }
+  ul, ol { padding-left: 20px; margin: 8px 0; }
+  li { margin: 4px 0; font-size: 14px; }
+  .divider { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
+  .highlight-box { background: linear-gradient(135deg, #1a1f2e 0%, #161b22 100%); border: 1px solid #f0b42944; border-radius: 10px; padding: 16px 20px; margin: 14px 0; }
+  .warn-box { background: #f851490d; border: 1px solid #f8514933; border-radius: 10px; padding: 16px 20px; margin: 14px 0; }
+  .mainline-section { margin-top: 30px; padding: 18px; border: 1px solid #f0b42955; border-radius: 14px; background: radial-gradient(circle at top left, #2b211033, transparent 38%), linear-gradient(135deg, #161b22 0%, #10151d 100%); box-shadow: 0 0 0 1px rgba(240,180,41,.08), 0 12px 40px rgba(0,0,0,.18); }
+  .mainline-section h2 { margin-top: 4px; color: #f0b429; border-left-color: #f0b429; }
+  .mainline-section h3 { color: #79c0ff; margin-top: 20px; }
+  .mainline-section blockquote { margin: 10px 0; padding: 12px 14px; border-left: 3px solid #f0b429; background: rgba(240,180,41,.08); border-radius: 8px; color: #d7dde6; }
+  .mainline-section table { overflow: hidden; border-radius: 10px; border: 1px solid #30363d; }
+  .mainline-section th { background: #2a2116; color: #f0b429; }
+  .mainline-section td:first-child { color: #79c0ff; font-weight: 700; }
+  .mainline-section p { margin: 10px 0; font-size: 14px; }
+  .mainline-section strong { color: #f0b429; }
+  .chart-wrap { background: #0d1117; border-radius: 8px; padding: 10px; }
+  .footer { text-align: center; color: #484f58; font-size: 11px; margin-top: 36px; padding-top: 16px; border-top: 1px solid #21262d; }
+  .plan-table td:first-child { font-weight: 600; color: #79c0ff; }
+  .nope { text-decoration: line-through; color: #484f58; }
+  /* 强度徽章：分段进度条 + 文字（自适应，不再拥挤/重叠）*/
+  .strength-bar { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px;
+    border-radius: 20px; background: rgba(255,255,255,0.04); border: 1px solid #30363d;
+    font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap; vertical-align: middle; }
+  .strength-bar::before { content: ""; flex-shrink: 0; width: 44px; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--sb-color, #f0b429) var(--sb-fill, 60%), rgba(255,255,255,0.10) var(--sb-fill, 60%)); }
+  .s5 { color: #58a6ff; --sb-color: #58a6ff; --sb-fill: 100%; }
+  .s4 { color: #3fb950; --sb-color: #3fb950; --sb-fill: 80%; }
+  .s3 { color: #f0b429; --sb-color: #f0b429; --sb-fill: 60%; }
+  .s2 { color: #f08229; --sb-color: #f08229; --sb-fill: 40%; }
+  .s1 { color: #f85149; --sb-color: #f85149; --sb-fill: 20%; }
+  /* 表格列宽优化：避免强度/质量列过窄导致拥挤 */
+  td .strength-bar { margin: 0; }
+</style>
+</head>
+<body>
+
+<h1>📊 每日盘后复盘</h1>
+<p class="subtitle">2026年06月18日 · 周四 · 数据截至收盘 · 数据源：Tushare(增强)+AkShare</p>
+
+<h2>一、大盘总览</h2>
+<div class="stat-row">
+  <div class="stat-box"><div class="label">上证指数</div><div class="value">4090.48 <span class="green">-0.43%</span></div></div>
+  <div class="stat-box"><div class="label">沪深300</div><div class="value">4941.60 <span class="red">+0.21%</span></div></div>
+  <div class="stat-box"><div class="label">科创50</div><div class="value">1911.51 <span class="red">+3.84%</span></div></div>
+  <div class="stat-box"><div class="label">深证成指</div><div class="value">16030.70 <span class="red">+0.94%</span></div></div>
+  <div class="stat-box"><div class="label">创业板指</div><div class="value">4252.39 <span class="red">+2.05%</span></div></div>
+</div>
+<div class="stat-row">
+  <div class="stat-box"><div class="label">涨停家数</div><div class="value">134</div></div>
+  <div class="stat-box"><div class="label">跌停家数</div><div class="value">22</div></div>
+  <div class="stat-box"><div class="label">上涨/下跌</div><div class="value">2023 / 3395</div></div>
+  <div class="stat-box"><div class="label">全市场平均涨跌</div><div class="value"><span class="green">-0.30%</span></div></div>
+</div>
+<div class="card card-gold">情绪周期定位：<strong>结构性牛市，主线高潮</strong>。指数层面大强小弱，上证受权重拖累微绿，但科创50与创业板指加速上攻。市场呈现极致割裂，半导体主线走出逼空行情，赚钱效应极度集中在科技股，其余方向惨遭抽血。涨停家数维持在134家高位，定义为：<strong>主线上升期的高潮加速段</strong>。</div>
+
+<hr class="divider">
+
+<h2>二、涨停跌停趋势</h2>
+<div class="chart-wrap"><svg viewBox="0 0 840 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <line x1="40" y1="240.0" x2="824" y2="240.0" stroke="#21262d" stroke-width="1"/><text x="34" y="244.0" fill="#484f58" font-size="10" text-anchor="end">0</text><line x1="40" y1="184.7" x2="824" y2="184.7" stroke="#21262d" stroke-width="1"/><text x="34" y="188.7" fill="#484f58" font-size="10" text-anchor="end">42</text><line x1="40" y1="129.3" x2="824" y2="129.3" stroke="#21262d" stroke-width="1"/><text x="34" y="133.3" fill="#484f58" font-size="10" text-anchor="end">84</text><line x1="40" y1="75.3" x2="824" y2="75.3" stroke="#21262d" stroke-width="1"/><text x="34" y="79.3" fill="#484f58" font-size="10" text-anchor="end">125</text><line x1="40" y1="20.0" x2="824" y2="20.0" stroke="#21262d" stroke-width="1"/><text x="34" y="24.0" fill="#484f58" font-size="10" text-anchor="end">167</text>
+  <polyline points="40.0,175.4 96.0,81.9 152.0,151.7 208.0,153.1 264.0,134.6 320.0,143.8 376.0,164.9 432.0,68.7 488.0,146.5 544.0,149.1 600.0,122.8 656.0,49.0 712.0,85.9 768.0,126.7 824.0,120.1" fill="none" stroke="#f85149" stroke-width="2"/>
+  <polyline points="40.0,174.1 96.0,212.3 152.0,218.9 208.0,225.5 264.0,230.8 320.0,225.5 376.0,193.9 432.0,228.1 488.0,207.1 544.0,197.8 600.0,220.2 656.0,236.0 712.0,230.8 768.0,238.7 824.0,224.2" fill="none" stroke="#3fb950" stroke-width="2"/>
+  <circle cx="40.0" cy="175.4" r="2.5" fill="#f85149"/><circle cx="96.0" cy="81.9" r="2.5" fill="#f85149"/><circle cx="152.0" cy="151.7" r="2.5" fill="#f85149"/><circle cx="208.0" cy="153.1" r="2.5" fill="#f85149"/><circle cx="264.0" cy="134.6" r="2.5" fill="#f85149"/><circle cx="320.0" cy="143.8" r="2.5" fill="#f85149"/><circle cx="376.0" cy="164.9" r="2.5" fill="#f85149"/><circle cx="432.0" cy="68.7" r="2.5" fill="#f85149"/><circle cx="488.0" cy="146.5" r="2.5" fill="#f85149"/><circle cx="544.0" cy="149.1" r="2.5" fill="#f85149"/><circle cx="600.0" cy="122.8" r="2.5" fill="#f85149"/><circle cx="656.0" cy="49.0" r="2.5" fill="#f85149"/><circle cx="712.0" cy="85.9" r="2.5" fill="#f85149"/><circle cx="768.0" cy="126.7" r="2.5" fill="#f85149"/><circle cx="824.0" cy="120.1" r="2.5" fill="#f85149"/><circle cx="40.0" cy="174.1" r="2.5" fill="#3fb950"/><circle cx="96.0" cy="212.3" r="2.5" fill="#3fb950"/><circle cx="152.0" cy="218.9" r="2.5" fill="#3fb950"/><circle cx="208.0" cy="225.5" r="2.5" fill="#3fb950"/><circle cx="264.0" cy="230.8" r="2.5" fill="#3fb950"/><circle cx="320.0" cy="225.5" r="2.5" fill="#3fb950"/><circle cx="376.0" cy="193.9" r="2.5" fill="#3fb950"/><circle cx="432.0" cy="228.1" r="2.5" fill="#3fb950"/><circle cx="488.0" cy="207.1" r="2.5" fill="#3fb950"/><circle cx="544.0" cy="197.8" r="2.5" fill="#3fb950"/><circle cx="600.0" cy="220.2" r="2.5" fill="#3fb950"/><circle cx="656.0" cy="236.0" r="2.5" fill="#3fb950"/><circle cx="712.0" cy="230.8" r="2.5" fill="#3fb950"/><circle cx="768.0" cy="238.7" r="2.5" fill="#3fb950"/><circle cx="824.0" cy="224.2" r="2.5" fill="#3fb950"/><text x="40.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">05.29</text><text x="96.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.01</text><text x="152.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.02</text><text x="208.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.03</text><text x="264.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.04</text><text x="320.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.05</text><text x="376.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.08</text><text x="432.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.09</text><text x="488.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.10</text><text x="544.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.11</text><text x="600.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.12</text><text x="656.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.15</text><text x="712.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.16</text><text x="768.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.17</text><text x="824.0" y="256" fill="#8b949e" font-size="10" text-anchor="middle">06.18</text>
+  <rect x="690" y="20" width="10" height="10" fill="#f85149"/>
+  <text x="704" y="29" fill="#c9d1d9" font-size="11">涨停</text>
+  <rect x="750" y="20" width="10" height="10" fill="#3fb950"/>
+  <text x="764" y="29" fill="#c9d1d9" font-size="11">跌停</text>
+</svg></div>
+<div class="card card-blue">从近一周数据看，涨停家数从6月11日的69家阶梯式攀升至今日134家，翻倍增长，显示短线情绪持续升温。6月15日涨停145家为近期沸点，今日134家虽有回落但仍在高位。关键信号在于<strong>跌停家数从个位数跃升至22家</strong>，这并非全线退潮，而是<strong>主线抽血效应加剧</strong>，非核心方向开始出现恐慌性出逃。情绪定性为：核心方向加速赶顶，后排跟风与边缘板块率先大面，分歧只在局部显现。</div>
+
+<hr class="divider">
+
+<h2>三、外盘与宏观</h2>
+<div class="stat-row">
+  <div class="stat-box"><div class="label">纳斯达克(昨)</div><div class="value"><span class="red">+0.95%</span></div></div>
+  <div class="stat-box"><div class="label">费城半导体(昨)</div><div class="value"><span class="red">+2.81%</span></div></div>
+  <div class="stat-box"><div class="label">恒生科技(今)</div><div class="value"><span class="green">-0.88%</span></div></div>
+</div>
+<div class="card card-purple"><span class="tag tag-gold">AI算力</span> 北美CSP厂商资本开支超预期，引发算力芯片需求二次上调预期，直接刺激科创板半导体板块集体爆发。</div>
+<div class="card card-blue"><span class="tag tag-blue">产业政策</span> 市场传闻国内将出台针对半导体设备和材料的专项补贴加码计划，科创次新弹性放大，20cm涨停潮涌现。</div>
+<div class="card card-gold"><span class="tag tag-gold">流动性</span> 两市成交额较昨日明显放大，资金从消费、新能源等老赛道加速切换至硬科技，量化资金在20cm高波动个股上活跃度极高。</div>
+
+<hr class="divider">
+
+<h2>四、板块题材梳理</h2>
+<h3>✅ 强势板块</h3>
+<table>
+  <tr><th>板块</th><th>强度</th><th>核心逻辑</th><th>代表个股</th></tr>
+  <tr><td>半导体</td><td><span class="strength-bar s5">极强</span></td><td>AI算力需求+国产化政策预期+费半映射</td><td>晶升股份、裕太微、金博股份</td></tr>
+  <tr><td>消费电子</td><td><span class="strength-bar s4">强</span></td><td>半导体景气外溢，设备与零部件补涨</td><td>麦捷科技、鑫宏业</td></tr>
+  <tr><td>通用设备</td><td><span class="strength-bar s3">中等</span></td><td>工业母机概念局部活跃，但非主线，偏轮动</td><td>春晖智控</td></tr>
+</table>
+<h3>❌ 重挫板块</h3>
+<table>
+  <tr><th>板块</th><th>触发因素</th><th>跌停代表</th></tr>
+  <tr><td>核电/电力</td><td>板块轮动退潮，资金获利了结坚决</td><td>中核科技</td></tr>
+  <tr><td>化工/材料</td><td>前期涨价逻辑证伪，业绩预期下修</td><td>山东玻纤、永杰新材</td></tr>
+  <tr><td>食品饮料</td><td>业绩爆雷+消费税调整传闻</td><td>百润股份</td></tr>
+  <tr><td>光伏辅材</td><td>价格战加剧，毛利预期恶化</td><td>赛伍技术</td></tr>
+</table>
+
+<hr class="divider">
+
+<h2>五、涨停股深度分析</h2>
+<h3>🔥 连板梯队</h3>
+<table>
+  <tr><th>高度</th><th>个股</th><th>板块</th><th>封板质量</th><th>逻辑</th></tr>
+  <tr><td><span class="tag tag-gold">3板</span></td><td>金戈新材</td><td>半导体</td><td><span class="strength-bar s5">极强</span></td><td>科创板次新+半导体材料龙头，缩量加速板，持筹者盛宴。</td></tr>
+  <tr><td><span class="tag tag-gold">2板</span></td><td>东方国信</td><td>AI算力</td><td><span class="strength-bar s4">强</span></td><td>华为昇腾合作伙伴，换手充分后回封，游资合力。</td></tr>
+  <tr><td><span class="tag tag-gold">首板</span></td><td>麦捷科技</td><td>消费电子</td><td><span class="strength-bar s3">中等</span></td><td>被动元件涨价预期，尾盘偷袭板，次日需高开确认。</td></tr>
+  <tr><td><span class="tag tag-gold">首板</span></td><td>裕太微</td><td>半导体</td><td><span class="strength-bar s5">极强</span></td><td>车载以太网芯片稀缺标的，机构与游资合力封板。</td></tr>
+</table>
+<div class="card card-gold">梯队高标金戈新材晋级3板，但梯队断层严重，仅有个别2板跟随，大量首板爆发。这是典型的主线高潮特征，而非健康连板接力结构。高位加速意味着一旦分歧，中位股将率先派面。</div>
+<h3>涨停驱动分类</h3>
+<div class="card card-gold"><strong>政策+产业驱动：</strong>半导体/算力。这是最强驱动，逻辑硬、资金认可度高，具备持续性，但内部将切换至逻辑更正宗的标的，纯情绪跟风20cm谨防回落。</div>
+<div class="card card-green"><strong>涨价驱动：</strong>消费电子被动元件。逻辑相对较弱，属于主线内部的支线补涨，持续性一般，仅适合在主线分歧时的轮动套利。</div>
+
+<hr class="divider">
+
+<h2>六、跌停股分析</h2>
+<table>
+  <tr><th>类型</th><th>代表个股</th><th>核心原因</th></tr>
+  <tr><td><span class="tag tag-red">高位补跌</span></td><td>金盾股份</td><td>前期低空经济概念爆炒后A杀，情绪退潮，今日加速下跌。</td></tr>
+  <tr><td><span class="tag tag-red">业绩暴雷</span></td><td>百润股份</td><td>半年报预告大幅低于预期，机构清仓式出逃。</td></tr>
+  <tr><td><span class="tag tag-red">板块退潮</span></td><td>中核科技、赛伍技术</td><td>核电、光伏等老周期板块被半导体全面抽血，流动性枯竭跌停。</td></tr>
+  <tr><td><span class="tag tag-red">庄股/问题股</span></td><td>*ST天龙</td><td>退市风险警示，复牌暴跌92%，非模式内操作，纯属黑天鹅。</td></tr>
+</table>
+<div class="warn-box">杀跌性质分析：今日大面主要源于<strong>非主线的流动性抽血</strong>以及个别业绩雷。连板晋级率在非科技线极低，证明当前除半导体主线外，其余方向风险收益比极差。接力失败就是A杀，退潮飞刀万万不可接。</div>
+
+<hr class="divider">
+
+<h2>七、龙虎榜与资金动向</h2>
+<div class="card card-gold">
+<ul>
+  <li><strong>主流资金主战场：</strong>京东方A、东山精密、通富微电等大市值半导体、面板股持续霸占近一月龙虎榜买入榜首，数十亿级别资金深度介入，明确机构与顶级游资联合主导科技行情。</li>
+  <li><strong>游资动向：</strong>光库科技、华工科技等算力光模块方向反复上榜。游资风格偏好科创板20cm强趋势个股，锁仓与做T并存，龙虎榜买榜席位联动明显。</li>
+  <li><strong>警惕信号：</strong>部分高位半导体股出现机构席位对倒迹象，需警惕机构在加速段派发筹码。北向资金今日整体小幅流出，与内资的狂热形成背离，是一个潜在风险点。</li>
+</ul>
+</div>
+
+<hr class="divider">
+
+<h2>八、交易复盘框架</h2>
+<h3>✅ 做对的事（可复制）</h3>
+<div class="card card-green"><ol>
+  <li><strong>拥抱最强主线：</strong>市场给出半导体+AI算力最强信号后，第一时间上车核心龙头，放弃所有杂毛机会。</li>
+  <li><strong>买在分歧，卖在一致：</strong>昨日若指数震荡、板块分歧时低吸沧州、旭创等核心，今日享受一致加速段的溢价，是正确的节奏。</li>
+  <li><strong>聚焦高辨识度：</strong>只做板块内逻辑最硬、辨识度最高的那批个股，如设备龙头、材料稀缺标的，不因畏高而选择跟风补涨。</li>
+</ol></div>
+<h3>❌ 要戒的习惯</h3>
+<div class="card card-red"><ol>
+  <li><strong>贪便宜抄底非主线：</strong>在半导体狂飙时，去抄底大跌的核电或食品股，企图博反弹，这是巨大的认知谬误和资金浪费。</li>
+  <li><strong>高潮次日顶加速一字：</strong>今日已是高潮，若明日继续无脑顶缩量加速板，极易成为接盘侠，吃天地大面。</li>
+  <li><strong>意淫后排补涨：</strong>主线高潮时去买看似“位置低”的同板块后排跟风，以为会补涨，结果往往是“老大吃肉，小弟喝汤，杂毛买单”。</li>
+</ol></div>
+<h3>📖 赵老哥/刺客交易哲学提炼</h3>
+<div class="highlight-box">
+  <strong>“只做最强主线，是A股短线唯一的活路。”</strong> 今日盘面诠释了什么叫“死也要死在龙头上”，光伏、核电一路阴跌，半导体一路新高。非主线，便无生机。<br>
+  <strong>“买在分歧，卖在一致。”</strong> 半导体今日是高潮的“一致”日，是持筹者的盛宴，而非最佳的开仓点。真正的买点在昨天，或板块假摔的“分歧”时刻。明日大概率将迎来大分歧，那是检验龙头的试金石。<br>
+  <strong>“不接退潮飞刀。”</strong> 中核科技、百润股份等跌停，无论盘中分时如何诱人，都不是买入的理由。板块退潮，个股逻辑再硬也扛不住流动性枯竭，此为亏钱之源，必须戒除。
+</div>
+
+<hr class="divider">
+
+<h2>九、次日作战计划</h2>
+<h3>🎯 重点板块排序</h3>
+<div class="card card-gold"><ol>
+  <li><strong>半导体（第一主线）：</strong> 聚焦AI算力芯片、半导体设备、先进封测。等待分歧后检验成色。</li>
+  <li><strong>消费电子（次级主线）：</strong> 作为半导体补涨支线，关注被动元件、光学光电子方向，仅在主线分歧时轮动套利。</li>
+</ol></div>
+<h3>📋 预选标的与买点</h3>
+<table class="plan-table">
+  <tr><th>标的</th><th>方向</th><th>买点</th><th>止损位</th></tr>
+  <tr><td>裕太微</td><td>车载通信芯片</td><td>竞价高开3%-6%，或分歧杀跌至5日线有强承接时低吸。</td><td>跌破今日涨停价超过5%</td></tr>
+  <tr><td>金博股份</td><td>半导体热场材料</td><td>次日若高位分歧放量换手后，午后强力回封可打回封板。</td><td>次日收盘不涨停即走</td></tr>
+  <tr><td>麦捷科技</td><td>被动元件</td><td>若高开秒板放弃；若平开或小幅高开后震荡，分时底部放量拉升时跟随。</td><td>跌破分时均线且无力收回</td></tr>
+</table>
+<h3>⛔ 不做清单</h3>
+<div class="card card-red"><ul>
+  <li class="nope">不追任何连续缩量加速2天以上的半导体高位股。</li>
+  <li class="nope">不抄底核电、光伏、食品饮料等任何下跌趋势中的非主线板块。</li>
+  <li class="nope">不参与任何逻辑不明、纯粹情绪驱动的低价微盘股脉冲。</li>
+  <li class="nope">早盘第一个小时内不轻易打秒板、一字板，严防炸板潮带来的巨额回撤。</li>
+</ul>
+<p><strong>不符合计划坚决不做，宁可错过，不可做错。</strong></p></div>
+<h3>📐 仓位管理</h3>
+<div class="card card-blue"><ul>
+  <li><strong>总仓位：</strong> 5-7成。主线高潮次日，需提高警惕，不可满仓梭哈。</li>
+  <li><strong>持仓结构：</strong> 7成仓聚焦半导体核心，3成仓现金或用于主线内的高低切换，随时准备迎接分歧。</li>
+  <li><strong>加仓条件：</strong> 指数与板块共振出现一次健康的放量分歧后，核心龙头率先回封或反包，届时可加仓至重仓。</li>
+</ul></div>
+<div class="highlight-box" style="text-align:center;"><strong>一句话总结：市场极度割裂，半导体主线已进入高潮加速段，享受泡沫的同时紧盯第一次大分歧，在分歧中汰弱留强，去伪存真，牢牢焊死在最强主线上。</strong></div>
+<hr class="divider">
+<section class="mainline-section">
+<h2>🎯 深度主线复盘（全市场核心大票驱动）</h2>
+<blockquote>本模块不使用每日荐股池，而是从<strong>全市场快照</strong>中筛选市值大、涨幅强、换手/量比有资金痕迹的核心大票，判断真正驱动盘面的主线。</blockquote>
+<blockquote>复盘重点不是找最强涨停线，而是看中际旭创、寒武纪、工业富联、海光信息这类大票是否承担主线定价权。</blockquote>
+<blockquote>市场广度：上涨2023家 / 下跌3395家，涨停134家 / 跌停22家。</blockquote>
+<h3>🔥 全市场核心大票热度</h3>
+<table>
+<tr><th>核心股</th><th>主线归属</th><th>当日涨幅</th><th>市值(亿)</th><th>换手</th><th>量比</th><th>量价信号</th></tr>
+<tr><td>屹唐股份(688729)</td><td>半导体设备材料</td><td>19.99%</td><td>977</td><td>35.45%</td><td>3.7</td><td>🔥 放量上攻</td></tr>
+<tr><td>寒武纪(688256)</td><td>AI算力/国产芯片</td><td>14.2%</td><td>9471</td><td>3.53%</td><td>1.71</td><td>🔥 放量上攻</td></tr>
+<tr><td>国瓷材料(300285)</td><td>陶瓷</td><td>14.05%</td><td>893</td><td>18.77%</td><td>1.04</td><td>➖ 平淡换手</td></tr>
+<tr><td>联瑞新材(688300)</td><td>半导体设备材料</td><td>14.98%</td><td>653</td><td>3.67%</td><td>0.93</td><td>➖ 平淡换手</td></tr>
+<tr><td>工业富联(601138)</td><td>AI算力/国产芯片</td><td>7.49%</td><td>15494</td><td>2.14%</td><td>2.67</td><td>🔥 放量上攻</td></tr>
+<tr><td>中际旭创(300308)</td><td>CPO/光通信</td><td>7.19%</td><td>15255</td><td>2.57%</td><td>0.99</td><td>➖ 平淡换手</td></tr>
+<tr><td>燕东微(688172)</td><td>半导体设备材料</td><td>12.53%</td><td>1071</td><td>3.35%</td><td>1.58</td><td>🔥 放量上攻</td></tr>
+<tr><td>盛科通信(688702)</td><td>半导体设备材料</td><td>11.22%</td><td>1382</td><td>6.73%</td><td>1.58</td><td>🔥 放量上攻</td></tr>
+<tr><td>中钨高新(000657)</td><td>稀土/小金属</td><td>10.0%</td><td>2244</td><td>6.3%</td><td>0.71</td><td>➖ 平淡换手</td></tr>
+<tr><td>光迅科技(002281)</td><td>CPO/光通信</td><td>10.0%</td><td>2203</td><td>5.25%</td><td>0.82</td><td>➖ 平淡换手</td></tr>
+<tr><td>江西铜业(600362)</td><td>稀土/小金属</td><td>10.01%</td><td>1846</td><td>6.0%</td><td>1.66</td><td>🔥 放量上攻</td></tr>
+<tr><td>昆仑万维(300418)</td><td>AI算力/国产芯片</td><td>10.97%</td><td>553</td><td>11.18%</td><td>3.1</td><td>🔥 放量上攻</td></tr>
+<tr><td>铜冠铜箔(301217)</td><td>稀土/小金属</td><td>10.08%</td><td>1658</td><td>5.26%</td><td>0.96</td><td>➖ 平淡换手</td></tr>
+<tr><td>蓝思科技(300433)</td><td>元器件</td><td>8.9%</td><td>2944</td><td>4.35%</td><td>1.04</td><td>➖ 平淡换手</td></tr>
+<tr><td>盛和资源(600392)</td><td>稀土/小金属</td><td>10.01%</td><td>555</td><td>15.23%</td><td>1.42</td><td>🔥 放量上攻</td></tr>
+<tr><td>兆易创新(603986)</td><td>半导体设备材料</td><td>7.33%</td><td>4410</td><td>8.86%</td><td>1.36</td><td>🔥 放量上攻</td></tr>
+</table>
+<h3>🔍 主线甄别深度复盘</h3>
+<p>今日盘面最迷惑的，不是涨停数有多少，也不是哪个个股分时脉冲，而是<strong>CPO三剑客集体踏空这场指数共振</strong>。中际旭创、光迅科技价格摆在那里，但量能投票明显不如半导体那边的抢筹凶猛。这轮资金打的旗号是“自主可控”，实质是在结构上回避高位趋势、往泛半导体材料方向做一波低切。真正关键是——<strong>明天放不出量，今天就是个情绪套利日。</strong></p>
+<h2>一、半导体设备材料：标杆点火，看明天溢价</h2>
+<p><strong>核心阵眼：</strong> 屹唐股份、燕东微、盛科通信，全是🔥放量上攻。</p>
+<p>- 这里面屹唐股份信号最强，35%换手加量比3.7，游资猛干型，科创板里打出近20%板，代表短线情绪。联瑞新材虽然涨幅大，量比仅0.93，属于被动跟涨，前排上去它才被带，龙性差一档。</p>
+<p>- 驱动属性：今天半导体材料方向没有新政策或订单落地式的明牌，更多是产业链内部资金从AI切向设备、材料的情绪轮动。讲的是国产替代宏大叙事，暂时不能按真业绩爆发去追。</p>
+<p>- 接力定性：不是趋势大票换手接力，更像是短线游资卡位。明天需要验证：屹唐股份不能低开低走，燕东微必须补量高开，否则今日拉升就是“一日游”经典写法。</p>
+<h2>二、AI算力/国产芯片：寒武纪定军心，后排看脸色</h2>
+<p><strong>盯盘锚：寒武纪、工业富联、昆仑万维。</strong></p>
+<p>- 寒武纪才是今天全场定心丸，14%阳线、3.53%换手、量比1.71，它不是超短脉冲，是千亿市值机构游资合力的打法。工业富联接近千亿盘子日内7.49%，量比2.67，属于明确🔥放量，趋势大票给出正向信号。</p>
+<p>- 但扯后腿的是昆仑万维，10.97%涨停，换手11%、量比3.1，典型的情绪套利板。明天一旦分化，它最先开板或被砸。</p>
+<p>- 定性：算力线是有真实订单预期支撑的，这块不能一棍子打死说是纯题材。但持续性还得看寒武纪能否三日不破今日阳线实体，工业富联量能不能骤缩到1.5以下。否则高位接力的兄弟容易站岗。</p>
+<h2>三、稀土/小金属：定价权在，但节奏偏题材</h2>
+<p><strong>核心：江西铜业、盛和资源、铜冠铜箔。</strong></p>
+<p>- 江西铜业量比1.66🔥，盘子大、换手6%，是这波资源股里比较稳的。盛和资源盘子小、股性活，15%换手+10%板价，游资卡得明显。</p>
+<p>- 驱动没看到海外矿场停产或收储型实锤，暂时仍按情绪套利对待。明天想接力必须等江西铜业平开过后有增量资金推，而不是高开急拉。</p>
+<h2>四、CPO/光通信：有价格、无量能确认，暂未获定价权</h2>
+<p>- 中际旭创、光迅科技虽然涨幅超7%乃至涨停，但量比均低于1，属于➖平淡换手。资金没有在今天这个节点猛攻CPO，说明短线活跃资金并不在这条线。</p>
+<p>- 短线结论：CPO今天没有拿到进攻定价权。明天需要中际旭创或新易盛放出倍量主动上攻，才能确认切换。目前暂不列入接力主线。</p>
+<h2>五、元器件/其他：蓝思科技单兵，不成线</h2>
+<p>- 蓝思科技单独在涨，换手量比都平淡，无法构成板块效应，跟随型上涨，不形成交易线。</p>
+<p>---</p>
+<p><strong>盘面结构一句话：</strong></p>
+<p>今天是半导体材料打头、AI算力撑腰、稀土小金属陪跑，三条腿走的都是“量在价先”的游资驱动。CPO在角落里被动跟涨，没有主动性，就看明天是跟涨还是补位。</p>
+<p><strong>次日生死信号：</strong></p>
+<p>1. <strong>屹唐股份、燕东微不能闷杀：</strong> 高开不破分时均线，量比维持1.5以上，主线可延续；低开低走且30分钟内不修复，全线收缩。</p>
+<p>2. <strong>寒武纪不破今日阳线中点：</strong> 明天若缩量回踩稳住，算力方向还可看一天；放量砸破则代表趋势资金撤退。</p>
+<p>3. <strong>中际旭创/新易盛必须表态：</strong> 明天CPO再不倍量启动，板块继续边缘化。</p>
+<p>4. <strong>量能总量门槛：</strong> 半导体、算力两大方向日成交不能比今天缩超30%，一缩就退潮。</p>
+<p><strong>不做清单（明天管住手）：</strong></p>
+<p>- 不接高位缩量一字或T字，尤其半导体材料方向。</p>
+<p>- 不做稀土早盘秒板后的排单，小心惯性日内反杀。</p>
+<p>- 不低吸今天量比＜0.9的跟风杂毛，补涨没肉。</p>
+<p>- 不在寒武纪放量杀破今日低点时强行补仓。</p>
+<p><strong>以上内容仅供研究交流，不构成任何投资建议。市场有风险，每一笔交易请独立判断。</strong></p>
+</section>
+
+<div class="warn-box" style="text-align:center;">
+  ⚠️ <strong>风险提示</strong>：本报告由 AI 系统基于公开市场数据自动生成，仅供研究参考，不构成任何投资建议。股市有风险，入市需谨慎。
+</div>
+
+<div class="footer">
+  复盘时间：2026年06月18日 23:11 ｜ 数据来源：Tushare(增强)+AkShare<br>
+  AI 盘后复盘 · George 复盘法
+</div>
+
+</body>
+</html>

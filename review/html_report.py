@@ -59,9 +59,10 @@ HTML_SKELETON = """<!DOCTYPE html>
   .dim { color: #8b949e; }
   .big-num { font-size: 28px; font-weight: 700; }
   .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
-  .stat-box { flex: 1; min-width: 120px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
-  .stat-box .label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
-  .stat-box .value { font-size: 22px; font-weight: 700; }
+  .stat-box { flex: 1; min-width: 130px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+  .stat-box .label { font-size: 12px; color: #8b949e; margin-bottom: 6px; display: block; }
+  .stat-box .value { font-size: 22px; font-weight: 700; margin-bottom: 4px; display: block; }
+  .stat-box .change { font-size: 13px; font-weight: 600; }
   ul, ol { padding-left: 20px; margin: 8px 0; }
   li { margin: 4px 0; font-size: 14px; }
   .divider { border: none; border-top: 1px solid #21262d; margin: 24px 0; }
@@ -209,7 +210,16 @@ def _top_limit_up(spot: pd.DataFrame, n: int = 15) -> list[dict]:
 
 
 def _collect_data(fetcher) -> dict:
-    """尽力收集复盘所需的当日真实数据，单项失败不影响其余。"""
+    """尽力收集复盘所需的当日真实数据，单项失败不影响其余。
+    
+    每次调用强制刷新市场级别数据（指数/板块/龙虎榜/快照），
+    避免缓存返回上一交易日的旧数据。
+    """
+    # 清除市场级别缓存，确保拿到当日收盘数据
+    from data.cache import invalidate_pattern
+    for prefix in ("spot:all:", "as_spot_", "index_spot", "as_sectors:", "as_lhb_map"):
+        invalidate_pattern(prefix)
+
     data: dict = {"indices": [], "breadth": {}, "sectors": [], "limit_up": [],
                   "limit_down": [], "lhb_top": [], "global": [], "limit_history": [],
                   "core_large_caps": []}
@@ -346,12 +356,17 @@ def _data_to_facts(data: dict) -> str:
 _SYSTEM = (
     "你是一位实战派A股游资策略师，擅长情绪周期、连板梯队与主线轮动分析，深谙赵老哥、"
     "刺客等顶尖游资的交易哲学。你将收到今日真实市场数据，请撰写一份专业、犀利、可执行的"
-    "盘后复盘报告。必须完整输出全部十一大板块，内容务必精炼有干货，切勿因篇幅过长导致中途截断。"
+    "盘后复盘报告。"
+    "第十一板块「全日复盘总结」是全文压轴，必须写得像实战游资的复盘笔记："
+    "用「今日最迷惑的」「真正杀人于无形」等反直觉开篇，"
+    "逐板块深度剖析（定性、逻辑、风险、玩法），"
+    "结尾用格言式交易哲学收束。"
+    "必须完整输出全部十一大板块，内容务必精炼有干货，切勿因篇幅过长导致中途截断。"
     "仅供研究，不构成投资建议。"
 )
 
 
-def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
+def _build_user_prompt(facts: str, custom: str, has_chart: bool, holdings: list[str] | None = None) -> str:
     focus = (custom or "").strip()
     focus_block = f"\n\n【复盘侧重点（用户偏好）】\n{focus}\n" if focus else ""
     chart_note = (
@@ -361,17 +376,36 @@ def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
         if has_chart else
         '注意：第二板块「涨停跌停趋势」暂无历史图表数据，请用文字描述近期涨停跌停数量变化趋势即可。'
     )
-    return f"""今日真实市场数据如下：
+    holdings_section = ""
+    num_sections = "十一"
+    if holdings and len(holdings) > 0:
+        hlist = ", ".join(holdings)
+        num_sections = "十二"
+        holdings_section = f"""
+十二、<h2>十二、持仓股分析</h2>
+   - 用 <section class="final-summary-section"> 包裹本板块全部内容
+   - 用户持仓股：{hlist}
+   - 请基于提供的持仓股K线数据，逐只分析：
+   - <h3>📌 持仓股今日动向</h3> + <table>（代码/名称/今日涨幅/成交量/所属板块/今日走势定性/核心观察）
+   - <h3>🔮 持仓股明日预测</h3>：对每只持仓股给出明日操作建议（持有/减仓/加仓）+ 关键价位 + 风险提示
+   - 用 <div class="card card-gold"> 给出一句话持仓总结
+"""
+
+    template = f"""今日真实市场数据如下：
 {facts}
 {focus_block}
 请基于以上真实数据，生成一份盘后复盘报告的【正文 HTML 片段】，严格遵守以下要求。
 
 {chart_note}
 
-== 结构（必须且仅有这十一大板块，板块之间用 <hr class="divider"> 分隔）==
+== 结构（必须且仅有这{num_sections}大板块，板块之间用 <hr class="divider"> 分隔）==
 
 一、<h2>一、大盘总览</h2>
-   - 用 <div class="stat-row"> 放多个 <div class="stat-box">（label/value/涨跌），含三大指数、成交额、涨停数、跌停数、涨跌比
+   - 用 <div class="stat-row"> 放多个 <div class="stat-box">
+   - 每个 stat-box 必须写三层，每层独立一行不挤在一行：
+     <div class="stat-box"><div class="label">上证指数</div><div class="value">4090.48</div><div class="change green">-0.43%</div></div>
+   - label=指数名称、value=最新价、change=涨跌幅（涨用 class="red"，跌用 class="green"）
+   - 含三大指数、成交额、涨停数、跌停数、涨跌比
    - 用 <div class="card card-gold"> 给出情绪周期定位（如冰点/修复/分歧/退潮）与一句话定调
 
 二、<h2>二、涨停跌停趋势</h2>
@@ -421,19 +455,44 @@ def _build_user_prompt(facts: str, custom: str, has_chart: bool) -> str:
 
 十一、<h2>十一、全日复盘总结</h2>
    - 用 <section class="final-summary-section"> 包裹本板块全部内容
-   - 这是全文压轴板块，必须由大模型基于以上所有分析做一次全面、深刻的「全日复盘总结」
-   - 内容需涵盖：今日盘面核心特征、主线地位确认、风险点、明日关键观察、策略总纲
-   - 用 <blockquote> 给出 2-3 条警句格言式的交易箴言
+   - 这是全文压轴板块，必须写得像实战派游资复盘笔记，犀利、有穿透力、拒绝废话
+
+   === 开头写法（必须） ===
+   用"今日最迷惑的"、"真正杀人于无形的"这类反直觉开篇句式，点出市场最隐蔽的陷阱：
+   - 不是XXX，也不是YYY，真正致命的是ZZZ
+   - 指出"假性回暖"、"情绪泡沫"、"业绩透支"等核心矛盾
+   - 一句话定调今日市场的胜负关键
+
+   === 逐板块深度剖析（2-3个核心主线） ===
+   每个板块写 3-4 段，结构如下：
+   <h3>板块名称</h3>
+   - 定性：业绩驱动还是情绪炒作？利好兑现还是新增量？
+   - 核心逻辑：订单/涨价/政策/财报，理由必须具体
+   - 关键风险：高位接盘信号？主力出货迹象？筹码松动？
+   - 玩法与生死线：下一阶段能不能玩？能玩什么方向？需要满足什么条件才能上车？
+   - 用 <div class="card card-gold"> 或 <div class="warn-box"> 包裹关键判断
+
+   === 结尾：交易哲学 ===
+   用 <blockquote> 写出 3-4 条短句格言式交易箴言，风格参考：
+   "何为周期之道：牛熊永远交替，狂热后必然冰冷"
+   "顺势者躺赢，逆势者挣扎"
+   "慢就是快，复利是最大的奇迹"
+   "放下执念和幻想，顺应市场规律"
+   不预设开头格式，由 LLM 基于当日盘面自行提炼。
+
    - 最后用 <p style="font-size:13px;color:#8b949e;"> 强调：以上内容仅供研究交流，不构成任何投资建议
 
 == 样式规则 ==
-- 只能使用骨架已定义的 CSS 类：card, card-gold, card-red, card-green, card-blue, card-purple, tag, tag-red, tag-green, tag-blue, tag-gold, tag-purple, stat-row, stat-box, label, value, table/th/td, red, green, gold, blue, dim, big-num, highlight-box, warn-box, divider, plan-table, nope, strength-bar, s1~s5, mainline-section, final-summary-section
+- 只能使用骨架已定义的 CSS 类：card, card-gold, card-red, card-green, card-blue, card-purple, tag, tag-red, tag-green, tag-blue, tag-gold, tag-purple, stat-row, stat-box, label, value, change, table/th/td, red, green, gold, blue, dim, big-num, highlight-box, warn-box, divider, plan-table, nope, strength-bar, s1~s5, mainline-section, final-summary-section
 - 强度/封板质量必须写成「徽章」：<span class="strength-bar s5">极强</span>，文字放在 span 内部作为标签。等级映射固定为：s5=极强、s4=强、s3=中等、s2=偏弱、s1=弱。严禁让文字溢出或在 span 外另写文字。
 - A股习惯「红涨绿跌」：上涨/涨停/利好用 class="red"，下跌/跌停/利空用 class="green"
 - 严禁输出 <html>、<head>、<body>、<style> 标签，严禁使用 markdown 代码围栏（```），直接输出 HTML 片段
 - 优先使用上面提供的真实数据；数据缺失维度（如部分涨停逻辑、催化剂、外盘）可基于板块特征与常识做合理定性分析，但不要编造精确数字
-- 必须输出完整十一大板块，宁可每段精炼也要写全，禁止中途截断
+- 必须输出完整{num_sections}大板块，宁可每段精炼也要写全，禁止中途截断
+
+{holdings_section}
 """
+    return template
 
 
 def _clean_llm_html(text: str) -> str:
@@ -447,8 +506,10 @@ def _clean_llm_html(text: str) -> str:
     return t.strip()
 
 
-def _build_body_with_llm(llm, facts: str, custom: str, chart_svg: str) -> str:
-    content = llm.chat(_SYSTEM, _build_user_prompt(facts, custom, bool(chart_svg)), max_tokens=12000)
+def _build_body_with_llm(llm, facts: str, custom: str, chart_svg: str,
+                         holdings: list[str] | None = None) -> str:
+    prompt = _build_user_prompt(facts, custom, bool(chart_svg), holdings=holdings)
+    content = llm.chat(_SYSTEM, prompt, max_tokens=12000)
     if not content or content.startswith("[LLM"):
         raise RuntimeError(content or "LLM 返回为空")
     body = _clean_llm_html(content)
@@ -487,11 +548,11 @@ def _build_body_fallback(data: dict, chart_svg: str) -> str:
     idx = data.get("indices") or []
     if idx:
         cells = ""
-        for i in idx[:4]:
+        for i in idx[:5]:
             c = _cls(i.get("pct"))
             cells += (f'<div class="stat-box"><div class="label">{i["name"]}</div>'
-                      f'<div class="value {c}">{i.get("price","-")}</div>'
-                      f'<div class="{c}">{_arrow(i.get("pct"))} {i.get("pct")}%</div></div>')
+                      f'<div class="value">{i.get("price","-")}</div>'
+                      f'<div class="change {c}">{_arrow(i.get("pct"))}{i.get("pct")}%</div></div>')
         parts.append(f'<div class="stat-row">{cells}</div>')
     if b:
         ratio = f'{b.get("up","-")}:{b.get("down","-")}'
@@ -687,14 +748,21 @@ def _extract_metrics(data: dict) -> dict:
     }
 
 
-def _render(data: dict, config: dict, fetcher, llm) -> str:
+def _render(data: dict, config: dict, fetcher, llm, holdings: list[str] | None = None) -> str:
     """组装完整 HTML 文档（不落库）。"""
     chart_svg = _limit_trend_svg(data.get("limit_history") or [])
     custom = (config.get("mode_options", {}) or {}).get("ai_summary", {}).get("custom_prompt", "")
 
+    facts = _data_to_facts(data)
+    if holdings:
+        # 收集持仓股数据追加到 facts
+        holdings_facts = _collect_holdings_data(fetcher, holdings)
+        if holdings_facts:
+            facts += "\n\n" + holdings_facts
+
     if llm and llm.available:
         try:
-            body = _build_body_with_llm(llm, _data_to_facts(data), custom, chart_svg)
+            body = _build_body_with_llm(llm, facts, custom, chart_svg, holdings=holdings)
         except Exception:
             body = _build_body_fallback(data, chart_svg)
     else:
@@ -714,17 +782,97 @@ def _render(data: dict, config: dict, fetcher, llm) -> str:
             .replace("{{BODY}}", body))
 
 
+def _collect_holdings_data(fetcher, holdings: list[str]) -> str:
+    """收集持仓股数据（K线+当日快照合并）。
+
+    - K线数据仅到昨日（当日日K未生成），用于历史走势参考
+    - 当日快照包含今日收盘价/涨跌幅/成交量，保证"今日数据"不缺失
+    - 合并后按 昨日K线 + 今日快照 的顺序提供给LLM
+    """
+    import datetime as _dt
+    today_str = _dt.date.today().isoformat()
+
+    # 一次性拉取全市场快照（后续按code过滤，避免逐个查询）
+    spot = None
+    try:
+        spot = fetcher.get_market_spot()
+    except Exception:
+        pass
+
+    lines = []
+    for code in holdings:
+        try:
+            name = fetcher.get_name(code) or code
+            df = fetcher.get_kline(code, days=5)
+            kline_str = ""
+
+            # 1) 取最近2条K线（历史参考）
+            if df is not None and not df.empty:
+                recent = df.tail(3)
+                for _, r in recent.iterrows():
+                    o = float(r.get("open", 0))
+                    c = float(r.get("close", 0))
+                    pct = (c - o) / o * 100 if o > 0 else 0
+                    d = str(r.get("date", ""))
+                    kline_str += f"  {d} 开{o:.2f} 收{c:.2f} 涨跌{pct:+.1f}%"
+                    if "volume" in r:
+                        kline_str += f" 量{float(r['volume'])/10000:.0f}万手"
+                    kline_str += "\n"
+
+            # 2) 今日快照兜底（K线无当日条形时）
+            today_data = ""
+            if spot is not None and not spot.empty:
+                code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+                price_col = next((c for c in spot.columns if "最新价" in c or "现价" in c), None)
+                pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+                vol_col = next((c for c in spot.columns if "成交量" in c), None)
+                amt_col = next((c for c in spot.columns if "成交额" in c), None)
+                if code_col and price_col:
+                    target = str(code).strip().zfill(6)
+                    row = spot[spot[code_col].astype(str).str.strip().str.zfill(6) == target]
+                    if not row.empty:
+                        r = row.iloc[0]
+                        price = float(r.get(price_col, 0))
+                        pct = float(r.get(pct_col, 0)) if pct_col and pd.notna(r.get(pct_col)) else None
+                        vol = float(r.get(vol_col, 0)) if vol_col and pd.notna(r.get(vol_col)) else None
+                        amt = float(r.get(amt_col, 0)) if amt_col and pd.notna(r.get(amt_col)) else None
+                        kline_str += f"  {today_str} (快照) 收{price:.2f}"
+                        if pct is not None:
+                            kline_str += f" 涨跌{pct:+.1f}%"
+                        vol_str = ""
+                        if vol:
+                            vol_str = f"成交量{vol/10000:.0f}万手"
+                        elif amt:
+                            vol_str = f"成交额{amt/1e8:.1f}亿"
+                        if vol_str:
+                            kline_str += f" {vol_str}"
+                        kline_str += "\n"
+                        today_data = (f"  【今日快照】{name}({code}) 收盘{price:.2f}"
+                                      f"{' ' + f'涨跌{pct:+.1f}%' if pct is not None else ''}"
+                                      f"{' ' + vol_str if vol_str else ''}")
+            # 若无今日快照，标记
+            if not today_data:
+                kline_str += f"  {today_str} (今日数据暂无，上行为昨日收盘数据)\n"
+
+            if kline_str:
+                lines.append(f"【持仓股】{name}({code}) 最近数据:\n{kline_str}")
+        except Exception:
+            pass
+    return "\n".join(lines) if lines else ""
+
+
 # ---------------- 对外编排 ----------------
-def generate_html_review(config: dict | None = None) -> str:
+def generate_html_review(config: dict | None = None, holdings: list[str] | None = None) -> str:
     """生成完整的 HTML 复盘报告字符串（兼容旧调用，不落库）。"""
     config = config or get_review_config()
     fetcher = get_fetcher()
     llm = get_llm()
     data = _collect_data(fetcher)
-    return _render(data, config, fetcher, llm)
+    return _render(data, config, fetcher, llm, holdings=holdings)
 
 
-def generate_and_store(config: dict | None = None, store: bool = True) -> dict:
+def generate_and_store(config: dict | None = None, store: bool = True,
+                       holdings: list[str] | None = None) -> dict:
     """生成复盘报告并落库，返回 {html, metrics, record?}。
 
     供 Web 接口使用：一次采集数据 → 渲染 HTML + 抽取结构化指标 → 持久化（同日覆盖）。
@@ -733,7 +881,7 @@ def generate_and_store(config: dict | None = None, store: bool = True) -> dict:
     fetcher = get_fetcher()
     llm = get_llm()
     data = _collect_data(fetcher)
-    html = _render(data, config, fetcher, llm)
+    html = _render(data, config, fetcher, llm, holdings=holdings)
     metrics = _extract_metrics(data)
     title = config.get("title", "每日盘后复盘")
     date = dt.datetime.now().strftime("%Y-%m-%d")
@@ -751,9 +899,41 @@ def generate_and_store(config: dict | None = None, store: bool = True) -> dict:
 
 
 def save_html_review(html: str, out_dir: str = "reports") -> str:
-    """保存 HTML 复盘报告，文件名形如 reports/2026-06-15-daily-review.html。"""
+    """保存 HTML 复盘报告，同时生成 PNG 截图，返回 HTML 路径。"""
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, dt.datetime.now().strftime("%Y-%m-%d") + "-daily-review.html")
-    with open(path, "w", encoding="utf-8") as f:
+    date_str = dt.datetime.now().strftime("%Y-%m-%d")
+    html_path = os.path.join(out_dir, date_str + "-daily-review.html")
+    with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
-    return path
+    # 自动生成 PNG 截图
+    try:
+        png_path = _html_to_image(html_path, out_dir)
+        if png_path:
+            print(f"[截图] 已导出 PNG：{png_path}")
+    except Exception as e:
+        print(f"[截图] 失败：{e}（HTML 已保存，不影响使用）")
+    return html_path
+
+
+def _html_to_image(html_path: str, out_dir: str = "reports") -> str | None:
+    """用 Playwright 将 HTML 文件渲染为 PNG 全页截图。
+
+    需要安装：pip install playwright && python -m playwright install chromium
+    未安装时静默降级，不影响 HTML 生成。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    date_str = dt.datetime.now().strftime("%Y-%m-%d")
+    png_path = os.path.join(out_dir, date_str + "-daily-review.png")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 900, "height": 800})
+            page.goto(f"file://{os.path.abspath(html_path)}", wait_until="networkidle", timeout=30000)
+            page.screenshot(path=png_path, full_page=True)
+            browser.close()
+        return png_path
+    except Exception:
+        return None

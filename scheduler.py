@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 from core.config import settings
 
@@ -115,6 +116,68 @@ def _parse_hm(s: str) -> tuple[int, int]:
     return int(h), int(m)
 
 
+def job_news_driven() -> str:
+    """热点驱动扫描：多渠道抓取→本地持久化→异步预分析。每12小时执行。
+
+    流程：
+      1. 多渠道抓取全球新闻（东方财富/财联社/新浪/金十/抖音/Reuters/DuckDuckGo）
+      2. 写入 news_raw 表（本地持久化）
+      3. 异步触发预分析（过滤→多分析师→板块映射）
+      4. 预分析结果写入 news_analysis 表
+      5. 每7天自动清理>4天前的过期数据
+      6. 扫描前后发送邮箱提醒（需配置 MAIL_ENABLED=true）
+
+    用户点击"分析"时直接读 news_analysis 预存结果，秒级响应。
+    """
+    import time as _time
+
+    # ── 扫描前：邮箱预告提醒 ──
+    scan_count = 0
+    try:
+        from agents.mail_notify import get_scan_count, increment_scan_count, send_scan_pre_notify, should_notify
+        cur_count, _ = get_scan_count()
+        scan_count = cur_count + 1
+        if should_notify():
+            send_scan_pre_notify(scan_count, dt.datetime.now())
+    except Exception as e:
+        print(f"[邮件提醒] 预告发送异常（不影响主流程）: {e}")
+
+    t0 = _time.time()
+    result = {}
+
+    print("[热点驱动] === 开始定时扫描 ===")
+    try:
+        from agents.news_orchestrator import run_full_scan, should_run_cleanup, cleanup_old_data
+        from agents.llm import get_llm
+        llm = get_llm()
+
+        # 执行完整扫描（含抓取+存储+预分析）
+        result = run_full_scan(llm=llm)
+        sectors = result.get("sectors", [])
+        print(f"[热点驱动] ✅ 扫描完成: {len(sectors)}个利好板块")
+
+        # 7日数据清理
+        if should_run_cleanup():
+            print("[热点驱动] 执行7日数据清理...")
+            cleanup = cleanup_old_data()
+            print(f"[热点驱动] 清理完成: {cleanup}")
+
+        return json.dumps(result, ensure_ascii=False) if sectors else ""
+    except Exception as e:
+        print(f"[热点驱动] ❌ 失败: {e}")
+        return ""
+    finally:
+        # ── 扫描后：邮箱完成通知 ──
+        try:
+            duration = round((_time.time() - t0) / 60, 1)
+            from agents.mail_notify import increment_scan_count, send_scan_done_notify, should_notify
+            if should_notify():
+                final_count = increment_scan_count(dt.datetime.now())
+                send_scan_done_notify(final_count, duration, result)
+        except Exception as e:
+            print(f"[邮件提醒] 完成通知异常（不影响主流程）: {e}")
+
+
 def start_scheduler():
     """启动常驻定时调度。"""
     try:
@@ -139,6 +202,10 @@ def start_scheduler():
         sched.add_job(lambda: job_tail_recommend(settings.recommend_count),
                       CronTrigger(day_of_week="mon-fri", hour=th, minute=tm), id="tail_recommend")
 
+    # 热点驱动扫描：每12小时执行（08:00 / 20:00）
+    from apscheduler.triggers.interval import IntervalTrigger as _Interval
+    sched.add_job(job_news_driven, _Interval(hours=12), id="news_driven")
+
     print("=" * 50)
     print("定时调度已启动（工作日）：")
     if settings.tail_recommend_enabled:
@@ -146,6 +213,7 @@ def start_scheduler():
     print(f"  - 每日荐股推送：{settings.recommend_push_time}（含反思迭代）")
     print(f"  - 每日选股推送：{settings.select_push_time}")
     print(f"  - 盘后复盘推送：{settings.review_push_time}")
+    print(f"  - 🌍 热点驱动扫描：每12小时（全球新闻→多Agent→板块映射）")
     print(f"  - 推送渠道：{', '.join(settings.channels)}")
     print("按 Ctrl+C 退出")
     print("=" * 50)

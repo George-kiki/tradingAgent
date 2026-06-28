@@ -134,10 +134,39 @@ class RecommendEngine:
         dates = self._trading_dates()
         if not dates:
             return None
+        from datetime import date as _date_class
+
+        today_str = _date_class.today().isoformat()
+
         if as_of:
+            # 筛选 ≤ as_of 的K线日期
             cand = [d for d in dates if d <= as_of]
-            return cand[-1] if cand else None
-        return dates[-1]
+            if cand:
+                # 场景1: cand[-1] == as_of（如收盘后K线已有当日）→ 直接返回
+                # 场景2: cand[-1] < as_of（如盘中K线只有昨天）→ 检查as_of是否为今天
+                if cand[-1] < as_of:
+                    # K线最新日期落后as_of：若as_of是今天，返回today_str
+                    # 若as_of是未来日期，截断到today
+                    try:
+                        parsed = _date_class.fromisoformat(as_of)
+                    except Exception:
+                        return cand[-1]
+                    if parsed >= _date_class.today():
+                        return today_str  # 盘中尾盘：K线停在昨天，返回今天
+                    return as_of  # 指定历史日期，返回K线最新
+                return cand[-1]  # cand[-1] == as_of
+            # cand为空 = as_of早于所有K线日期 → 回退到最早K线日期
+            try:
+                _date_class.fromisoformat(as_of)
+                return dates[0]
+            except Exception:
+                return None
+
+        # 无as_of：检查最新K线日期是否落后今天
+        latest = dates[-1]
+        if latest < today_str:
+            return today_str  # 盘中：K线最新是昨天，返回今天
+        return latest
 
     # ------------------------------------------------------------------
     # 斐波那契黄金分割回撤
@@ -503,57 +532,113 @@ class RecommendEngine:
         return "；".join(parts) + "。"
 
     # ------------------------------------------------------------------
-    # 反思接入
+    # 反思接入（滚动窗口胜率 + 约束自动过期）
     # ------------------------------------------------------------------
+    _REFLECT_WINDOW = 5                 # 滚动窗口天数
+    _CONSTRAINT_TTL = 3                 # 约束自动过期天数
+    _ROLLING_REFLECT_THRESHOLD = 0.65   # 滚动胜率低于此触发反思
+    _ROLLING_RELAX_THRESHOLD = 0.75     # 滚动胜率高于此放松约束
+
     def _maybe_reflect(self, base_date: str) -> tuple[dict, dict, Optional[dict]]:
-        """返回 (weights, filters, reflection)。胜率不达标时执行反思并调整。"""
+        """返回 (weights, filters, reflection)。
+
+        关键改动：
+        1. 滚动窗口胜率替代单日胜率判断
+        2. 约束自动过期（超过CONSTRAINT_TTL天的约束自动移除）
+        3. 胜率持续好转时逐步放松约束
+        """
         prev = self.db.latest_weights(on_or_before=base_date)
         weights = (prev or {}).get("weights") or default_weights()
         filters = (prev or {}).get("filters") or default_filters()
-        # 确保权重覆盖全部当前策略
         for n in STRATEGY_REGISTRY:
             weights.setdefault(n, 1.0)
 
-        prev_wr = self.db.latest_winrate(before=base_date)
-        if not prev_wr:
-            return weights, filters, None  # 无历史，按默认/上次权重
+        # —— 约束自动过期 ——
+        weight_date = (prev or {}).get("effective_date") or ""
+        if weight_date:
+            try:
+                days_since = (_dt.datetime.strptime(base_date, "%Y-%m-%d")
+                              - _dt.datetime.strptime(weight_date[:10], "%Y-%m-%d")).days
+            except Exception:
+                days_since = self._CONSTRAINT_TTL
+            if days_since >= self._CONSTRAINT_TTL:
+                # 移除过期硬约束，保留评分门槛
+                relaxed = {}
+                for k, v in filters.items():
+                    if k in ("max_rsi", "max_pos_52w", "require_fund_inflow",
+                             "max_per_sector", "market_timing", "require_positive_fundamental"):
+                        if v is not None and v is not False:
+                            print(f"[反思] 约束 {k}={v} 已过期({days_since}天)，自动解除")
+                            continue
+                    relaxed[k] = v
+                filters = relaxed
 
-        # 已对该批次反思过则不重复
+        # —— 滚动窗口胜率 ——
+        winrates = self.db.recent_winrates(n=self._REFLECT_WINDOW, before=base_date)
+        rolling_wr = sum(wr["win_rate"] for wr in winrates) / len(winrates) if winrates else None
+
+        if not winrates:
+            return weights, filters, None
+
+        latest_wr = winrates[-1] if winrates else None
+        if not latest_wr:
+            return weights, filters, None
+
+        # 已反思过则跳过
         if self.db.get_reflection(base_date):
             return weights, filters, self.db.get_reflection(base_date)
 
-        if prev_wr["win_rate"] >= settings.winrate_threshold:
-            return weights, filters, None  # 达标，无需反思
+        # —— 胜率持续好转 → 逐步放松约束 ——
+        if rolling_wr is not None and rolling_wr >= self._ROLLING_RELAX_THRESHOLD:
+            # 胜率持续好转：移除所有反思约束，回到默认
+            relax_count = 0
+            for k in list(filters.keys()):
+                if k in ("max_rsi", "max_pos_52w", "require_fund_inflow",
+                         "max_per_sector", "market_timing", "require_positive_fundamental"):
+                    if filters[k]:
+                        filters[k] = None if k != "require_fund_inflow" else False
+                        relax_count += 1
+            if relax_count > 0:
+                print(f"[反思] 滚动胜率{rolling_wr*100:.0f}%≥{self._ROLLING_RELAX_THRESHOLD*100:.0f}%，"
+                      f"放松{relax_count}条约束")
+                self.db.save_weights(base_date, weights, filters,
+                                     source="relaxation",
+                                     note=f"滚动胜率{rolling_wr*100:.0f}%达标，放松约束")
 
-        # —— 触发反思 ——
-        from agents.llm import get_llm
-        llm = get_llm()
-        ref = reflect(
-            db=self.db,
-            based_on_date=prev_wr["base_date"],
-            reflect_date=base_date,
-            prev_win_rate=prev_wr["win_rate"],
-            threshold=settings.winrate_threshold,
-            prev_weights=weights,
-            prev_filters=filters,
-            fetcher=self.fetcher,
-            llm=llm,
-        )
-        adj = ref["adjustments"]
-        self.db.save_weights(base_date, adj["weights"], adj["filters"],
-                             source="reflection",
-                             note=f"基于{prev_wr['base_date']}胜率{prev_wr['win_rate']*100:.0f}%反思")
-        self.db.save_reflection(
-            reflect_date=base_date,
-            based_on_date=prev_wr["base_date"],
-            prev_win_rate=prev_wr["win_rate"],
-            threshold=settings.winrate_threshold,
-            dimensions=ref["dimensions"],
-            conclusion=ref["conclusion"],
-            adjustments=adj,
-            llm_used=ref["llm_used"],
-        )
-        return adj["weights"], adj["filters"], self.db.get_reflection(base_date)
+        # —— 滚动窗口胜率低于阈值 → 触发反思 ——
+        if rolling_wr is not None and rolling_wr < self._ROLLING_REFLECT_THRESHOLD:
+            print(f"[反思] 滚动胜率{rolling_wr*100:.0f}%<{self._ROLLING_REFLECT_THRESHOLD*100:.0f}%，"
+                  f"触发反思迭代")
+            from agents.llm import get_llm
+            llm = get_llm()
+            ref = reflect(
+                db=self.db,
+                based_on_date=latest_wr["base_date"],
+                reflect_date=base_date,
+                prev_win_rate=latest_wr["win_rate"],
+                threshold=settings.winrate_threshold,
+                prev_weights=weights,
+                prev_filters=filters,
+                fetcher=self.fetcher,
+                llm=llm,
+            )
+            adj = ref["adjustments"]
+            self.db.save_weights(base_date, adj["weights"], adj["filters"],
+                                 source="reflection",
+                                 note=f"滚动胜率{rolling_wr*100:.0f}%<{self._ROLLING_REFLECT_THRESHOLD*100:.0f}%")
+            self.db.save_reflection(
+                reflect_date=base_date,
+                based_on_date=latest_wr["base_date"],
+                prev_win_rate=latest_wr["win_rate"],
+                threshold=settings.winrate_threshold,
+                dimensions=ref["dimensions"],
+                conclusion=ref["conclusion"],
+                adjustments=adj,
+                llm_used=ref["llm_used"],
+            )
+            return adj["weights"], adj["filters"], self.db.get_reflection(base_date)
+
+        return weights, filters, None
 
     # ------------------------------------------------------------------
     # 主流程
@@ -561,7 +646,8 @@ class RecommendEngine:
     def run(self, as_of: Optional[str] = None, count: Optional[int] = None,
             pool: Optional[list[str]] = None,
             extra_filters: Optional[dict] = None,
-            mode: str = "daily") -> dict:
+            mode: str = "daily",
+            skip_llm_review: bool = False) -> dict:
         count = count or settings.recommend_count
 
         print("[荐股] 1/7 结算历史推荐...")
@@ -578,23 +664,64 @@ class RecommendEngine:
         if extra_filters:
             filters = {**filters, **{k: v for k, v in extra_filters.items() if v is not None}}
 
-        print("[荐股] 4/7 构建动态候选池...")
+        print("[荐股] 4/7 构建三级候选池...")
         from recommend.universe import build_dynamic_universe
         try:
             dyn_pool, sector_map, hot_week = build_dynamic_universe(
                 self.fetcher, base_pool=(pool or RECOMMEND_POOL),
-                as_of=base_date)  # 历史日期回退固定池，保证时间一致性
+                as_of=base_date)
         except Exception:
             dyn_pool, sector_map, hot_week = [], {}, []
-        if not dyn_pool:  # 兜底：动态池失败回退固定池
-            dyn_pool = list(pool or RECOMMEND_POOL)
-        pool = [s for s in dyn_pool if eligible(s)]
+
+        # 三级候选池：Tier1(主线) → Tier2(蓝筹) → Tier3(全市场TOP200)
+        pool = []
+        seen = set()
+
+        # Tier1: 动态主线池（优先）
+        t1 = [s for s in dyn_pool if eligible(s)]
+        for s in t1:
+            if s not in seen:
+                pool.append(s); seen.add(s)
+        self._sector_map = sector_map
+        n_t1 = len(pool)
+
+        # Tier2: 固定蓝筹池（兜底）
+        t2_base = list(pool or RECOMMEND_POOL)
+        for s in t2_base:
+            if eligible(s) and s not in seen:
+                pool.append(s); seen.add(s)
+        n_t2 = len(pool) - n_t1
+
+        # Tier3: 全市场TOP200（扩展，仅在前两轮不足60%时启动）
         scan_max = int(os.getenv("REC_SCAN_MAX", "30"))
+        if len(pool) < scan_max * 0.6:
+            try:
+                spot = self.fetcher.get_market_spot()
+                if spot is not None and not spot.empty:
+                    pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+                    code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+                    if pct_col and code_col:
+                        caps = spot.copy()
+                        caps["_pct"] = pd.to_numeric(caps[pct_col], errors="coerce")
+                        caps = caps[caps["_pct"].abs() >= 2].sort_values("_pct", ascending=False)
+                        for _, r in caps.iterrows():
+                            s = str(r[code_col]).strip().zfill(6)
+                            if eligible(s) and s not in seen:
+                                pool.append(s); seen.add(s)
+                                if len(pool) >= scan_max * 2:
+                                    break
+            except Exception:
+                pass
+        n_t3 = len(pool) - n_t1 - n_t2
+
         if len(pool) > scan_max:
             pool = pool[:scan_max]
-        self._sector_map = sector_map  # 供 _score_stock / _multifactor 读取板块归属
 
-        print(f"[荐股] 候选池数量：{len(pool)}")
+        env_note = ""
+        if n_t3 > 0:
+            env_note = f"（扩展了{n_t3}只全市场标的）"
+
+        print(f"[荐股] 候选池：T1={n_t1} T2={n_t2} T3={n_t3} → 共计{len(pool)}{env_note}")
         print("[荐股] 5/7 计算市场情绪...")
         from recommend.sentiment import compute_market_sentiment
         try:
@@ -677,7 +804,7 @@ class RecommendEngine:
             llm_enabled = get_llm().available
         except Exception:
             pass
-        if llm_enabled and shortlist:
+        if llm_enabled and shortlist and not skip_llm_review:
             print(f"[荐股] LLM复核：enabled=True shortlist={len(shortlist)}")
             try:
                 reviews = llm_review_candidates(

@@ -168,40 +168,8 @@ def _score_sectors(fetcher, hot_week: Optional[list] = None) -> tuple[float, str
 
 def _score_northbound(fetcher, base_date: Optional[str]) -> tuple[Optional[float], str]:
     """北向资金近5日净流入方向 -> 0-100 子分。取不到返回 None（不参与，权重重分配）。"""
-    # 北向逐日资金接口在 akshare 中常变更/限流，这里 best-effort，失败即跳过
-    try:
-        import akshare as ak
-        df = None
-        for caller in (
-            lambda: ak.stock_hsgt_hist_em(symbol="北向资金"),
-            lambda: ak.stock_hsgt_north_net_flow_in_em(symbol="北上"),
-        ):
-            try:
-                df = caller()
-                if df is not None and not df.empty:
-                    break
-            except Exception:
-                continue
-        if df is None or df.empty:
-            return None, ""
-        val_col = next((c for c in df.columns if "净流入" in str(c) or "净买" in str(c)
-                        or "当日资金流入" in str(c)), None)
-        date_col = next((c for c in df.columns if "日期" in str(c)), None)
-        if not val_col:
-            return None, ""
-        if date_col:
-            df = df.sort_values(date_col)
-            if base_date:
-                df = df[df[date_col].astype(str) <= base_date]
-        vals = pd.to_numeric(df[val_col], errors="coerce").dropna()
-        if vals.empty:
-            return None, ""
-        net5 = float(vals.tail(5).sum())  # 单位通常为亿元
-        # net5 从 -200亿 ~ +200亿 映射到 20 ~ 85
-        sub = _clip(net5 / 200 * 32.5 + 50, 10, 90)
-        return sub, f"北向近5日净{'流入' if net5 >= 0 else '流出'}{abs(net5):.0f}亿"
-    except Exception:
-        return None, ""
+    # 北向资金数据依赖东财，当前环境不可达，直接返回 None
+    return None, ""
 
 
 def compute_market_sentiment(fetcher, base_date: Optional[str] = None,
