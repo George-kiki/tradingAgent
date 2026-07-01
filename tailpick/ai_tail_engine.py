@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -122,18 +123,20 @@ def _build_layer1_prompt(indices, breadth, sectors, lhb_top) -> str:
 只输出JSON。"""
 
 
-def layer1_market_perception(fetcher) -> dict:
+def layer1_market_perception(fetcher, fast: bool = True, deadline: float | None = None) -> dict:
     """Layer 1: LLM感知市场环境，返回动态配置。"""
     try:
         from agents.llm import get_llm
         llm = get_llm()
-        if not llm.available:
+        if fast or not llm.available or (deadline and time.time() > deadline):
             return _fallback_market_config(fetcher)
 
         indices = fetcher.get_index_spot() or []
         breadth = fetcher.get_market_breadth() or {}
         sectors = fetcher.get_hot_sectors(limit=8) or []
-        lhb = fetcher.get_lhb_map() or {}
+        if deadline and time.time() > deadline:
+            return _fallback_market_config(fetcher)
+        lhb = {}  # 龙虎榜盘后/近月接口较慢，尾盘实时链路默认跳过
         lhb_top = sorted(
             [{"name": "", "net_buy": (v.get("net_buy",0) or 0)/1e8}
              for v in lhb.values()],
@@ -345,12 +348,12 @@ score范围-0.08~+0.05。只输出JSON。"""
 
 
 def layer3_llm_review(candidates: list[dict], market: dict,
-                       sectors: list) -> list[dict]:
+                       sectors: list, deadline: float | None = None) -> list[dict]:
     """Layer 3: LLM审查候选股。"""
     try:
         from agents.llm import get_llm
         llm = get_llm()
-        if not llm.available or not candidates:
+        if not llm.available or not candidates or (deadline and time.time() > deadline):
             return []
         prompt = _build_layer3_prompt(candidates, market, sectors)
         resp = llm.chat(_LAYER3_SYSTEM, prompt, temperature=0.15,
@@ -441,14 +444,18 @@ class AITailEngine:
         self.fetcher = get_fetcher()
         self.ml = TailRallyPredictor()
 
-    def run(self, count: int = 5, force: bool = False) -> dict:
+    def run(self, count: int = 5, force: bool = False,
+            max_seconds: int = 45, analyze_limit: int | None = None,
+            use_llm_review: bool = False) -> dict:
         """执行完整AI协同尾盘选股。"""
         import datetime as dt
         from data.cache import invalidate_cache
+        started = time.time()
+        deadline = started + max(15, int(max_seconds or 45))
 
-        # 清缓存（14:30 实时数据）
-        for key in ("spot:all:v2","spot:all:v3","ts_spot_all","as_spot_all",
-                     "index_spot","as_sectors:10","as_sectors:5","sectors:10"):
+        # 快速链路：不清全市场快照，避免数据源抖动时重新拉取拖到数分钟。
+        # DataFetcher 自身有短 TTL 和 stale 标记；指数/板块轻量缓存可以刷新。
+        for key in ("index_spot","as_sectors:10","as_sectors:5","sectors:10"):
             invalidate_cache(key)
 
         now = dt.datetime.now()
@@ -457,8 +464,8 @@ class AITailEngine:
             if not (dt.time(13,0) <= t <= dt.time(15,0)):
                 return {"error": "尾盘窗口未开放(13:00-15:00)"}
 
-        print("[AI尾盘] Layer1: LLM市场感知...")
-        market_cfg = layer1_market_perception(self.fetcher)
+        print("[AI尾盘] Layer1: 市场感知...")
+        market_cfg = layer1_market_perception(self.fetcher, fast=not use_llm_review, deadline=deadline)
         print(f"[AI尾盘]   阶段={market_cfg['regime']} 风险={market_cfg['risk_level']}"
               f" 阈值:max_pct={market_cfg['max_pct']}%")
 
@@ -474,23 +481,35 @@ class AITailEngine:
         # 午后活跃股池
         print("[AI尾盘] Stage1: 午后股池...")
         spot = self.fetcher.get_market_spot()
+        source = getattr(self.fetcher, "last_market_spot_source", "未知")
+        stale = bool(getattr(self.fetcher, "last_market_spot_stale", False))
+        if stale:
+            return self._empty_result(now, market_cfg, source, "行情快照为缓存兜底，AI尾盘链路要求实时数据，本次不强行选股。", started)
         candidates = self._build_pool(spot, cfg, market_cfg)
         print(f"[AI尾盘]   候选: {len(candidates)}只")
+        if not candidates:
+            return self._empty_result(now, market_cfg, source, "实时快照中没有满足量价/流动性条件的候选。", started)
 
         # 市场情绪
         print("[AI尾盘] Stage2: 市场情绪...")
-        market = _compute_market(self.fetcher)
+        if time.time() > deadline:
+            market = {"score": 50, "breadth": {}, "indices": [], "regime": market_cfg["regime"]}
+        else:
+            market = _compute_market(self.fetcher)
         market["regime"] = market_cfg["regime"]
         market["score"] = market.get("score", 50)
 
-        sectors = self.fetcher.get_hot_sectors(limit=8) or []
+        sectors = [] if time.time() > deadline else (self.fetcher.get_hot_sectors(limit=8) or [])
 
         # 逐股分析
-        print(f"[AI尾盘] Stage3: 逐股分析+ML预测 ({len(candidates[:20])}只)...")
+        scan_limit = analyze_limit or max(6, min(12, count * 3))
+        print(f"[AI尾盘] Stage3: 逐股分析+ML预测 ({len(candidates[:scan_limit])}只)...")
         scored = []
         from core.indicators import add_all_indicators
 
-        for item in candidates[:20]:
+        for item in candidates[:scan_limit]:
+            if time.time() > deadline:
+                break
             try:
                 # K线数据
                 kline = self.fetcher.get_kline(item["symbol"], days=30)
@@ -534,10 +553,10 @@ class AITailEngine:
             except Exception:
                 continue
 
-        # Layer3: LLM审查Top10
+        # Layer3: LLM审查TopN（默认关闭，避免交互链路长时间等待）
         print("[AI尾盘] Layer3: LLM深度审查...")
         scored.sort(key=lambda x: x["score"], reverse=True)
-        reviews = layer3_llm_review(scored[:10], market_cfg, sectors)
+        reviews = layer3_llm_review(scored[:min(6, len(scored))], market_cfg, sectors, deadline=deadline) if use_llm_review else []
         review_map = {str(r.get("symbol","")): r for r in reviews}
 
         # 应用LLM加减分
@@ -583,15 +602,36 @@ class AITailEngine:
             "engine": "ai-tail-dedicated",
             "as_of": now.strftime("%Y-%m-%d %H:%M"),
             "strategy": "AI协同尾盘策略：LLM市场感知→ML拉升预测→LLM审查→风控过滤",
+            "data_source": source,
             "market_config": market_cfg,
+            "market": market,
             "candidates_count": len(candidates),
+            "analyzed_count": len(scored),
+            "elapsed_sec": round(time.time() - started, 2),
             "ml_insights": {
-                "model": "LightGBM启发式规则",
-                "note": "15维特征(午后动量/量价/资金/形态)→尾盘拉升概率预测",
+                "model": "启发式ML快速评分",
+                "note": "15维特征(午后动量/量价/资金/形态)→尾盘拉升概率预测；LLM审查默认跳过以保证响应",
                 "avg_rally_prob": round(np.mean([p["rally_prob"] for p in picks]), 3) if picks else 0,
             },
             "picks": picks,
             "fund_chart": fund_chart,
+        }
+
+    def _empty_result(self, now, market_cfg: dict, source: str, note: str, started: float | None = None) -> dict:
+        return {
+            "engine": "ai-tail-dedicated",
+            "as_of": now.strftime("%Y-%m-%d %H:%M"),
+            "strategy": "AI协同尾盘策略：快速市场感知→ML拉升预测→风控过滤",
+            "data_source": source,
+            "market_config": market_cfg,
+            "market": {"score": 50, "breadth": {}, "indices": [], "regime": market_cfg.get("regime")},
+            "candidates_count": 0,
+            "analyzed_count": 0,
+            "elapsed_sec": round(time.time() - started, 2) if started else 0,
+            "risk_note": note,
+            "ml_insights": {"model": "启发式ML快速评分", "note": note, "avg_rally_prob": 0},
+            "picks": [],
+            "fund_chart": {"symbols": [], "series": [], "unit": "亿元"},
         }
 
     def _build_pool(self, spot, cfg: TailConfig, mkt_cfg: dict) -> list[dict]:
@@ -609,7 +649,8 @@ class AITailEngine:
         mv_c = next((c for c in spot.columns if "市值" in c), None)
         main_c = next((c for c in spot.columns if "主力净流入" in c or "主力净额" in c), None)
 
-        if not code_c or not pct_c:
+        # 四层智能链路用于实时尾盘，不接受缺成交额/换手/量比的降级快照。
+        if not (code_c and name_c and pct_c and price_c and turn_c and vr_c and amt_c):
             return []
 
         avoid = set(mkt_cfg.get("avoid_sectors", []) or [])
@@ -623,11 +664,11 @@ class AITailEngine:
             pct = _num(r.get(pct_c))
             if pct < cfg.min_pct or pct > cfg.max_pct:
                 continue
-            amount = _num(r.get(amt_c)) if amt_c else 0
-            if amt_c and amount < cfg.min_amount_yi * 1e8:
+            amount = _num(r.get(amt_c))
+            if amount < cfg.min_amount_yi * 1e8:
                 continue
-            turn = _num(r.get(turn_c)) if turn_c else 0
-            if turn_c and turn < cfg.min_turnover:
+            turn = _num(r.get(turn_c))
+            if turn < cfg.min_turnover:
                 continue
             vr = _num(r.get(vr_c), 1)
             if vr < cfg.min_volume_ratio:

@@ -16,6 +16,8 @@ class ReviewEngine:
         self.llm = get_llm()
 
     def generate(self) -> str:
+        # 盘后复盘不主动清空全市场快照缓存：若实时源抖动，DataFetcher 会用最近成功
+        # 快照兜底并标记数据源，避免各模块拿到半截行情。
         title = self.config.get("title", "每日盘后复盘")
         enabled = self.config.get("enabled_modes", [])
         use_llm = set(self.config.get("use_llm_for", []))
@@ -24,7 +26,7 @@ class ReviewEngine:
         ctx = ReviewContext(self.fetcher, options, use_llm, self.llm)
 
         now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-        parts = [f"# 📋 {title}", f"> 生成时间：{now}　|　数据源：{self.fetcher.active_source}", ""]
+        parts = [f"# 📋 {title}", f"> 生成时间：{now}　|　可用数据源：{self.fetcher.active_source}", ""]
 
         for mode_name in enabled:
             cls = REVIEW_MODES.get(mode_name)
@@ -35,6 +37,11 @@ class ReviewEngine:
                 parts.append(cls().run(ctx))
             except Exception as e:
                 parts.append(f"## {mode_name}\n\n（生成失败：{e}）\n")
+
+        source = getattr(self.fetcher, "last_market_spot_source", "")
+        if source:
+            stale = "（缓存兜底）" if getattr(self.fetcher, "last_market_spot_stale", False) else ""
+            parts.insert(2, f"> 行情快照：{source}{stale}\n")
 
         parts.append("---\n> ⚠️ 本复盘由 AI 自动生成，仅供研究参考，不构成投资建议。")
         return "\n".join(parts)

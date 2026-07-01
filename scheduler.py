@@ -52,6 +52,71 @@ def job_recommend(count: int = 5, force: bool = False, tailpick_mode: bool = Fal
         print(f"[{mode_label}] 非交易日，跳过")
         return ""
     from notify import push
+
+    if tailpick_mode:
+        from recommend.database import RecommendDB
+        from recommend.winrate import settle_all_pending
+        from tailpick.tail_engine import TailEngine
+
+        print("[尾盘荐股] 开始生成（结算→尾盘专属引擎→落库）...")
+        db = RecommendDB()
+        fetcher = None
+        try:
+            from data.fetcher import get_fetcher
+            fetcher = get_fetcher()
+            settle_all_pending(db, fetcher)
+        except Exception:
+            pass
+
+        res = TailEngine().run(count=count, force=force)
+        if res.get("error"):
+            print(f"[尾盘荐股] 失败：{res['error']}")
+            return ""
+
+        base_date = res.get("as_of", "")[:10]
+        picks = res.get("picks", [])
+        for p in picks:
+            p["entry_price"] = p.get("entry_price") or p.get("price")
+            p.setdefault("factors", {})
+            p["factors"].update({
+                "tail_engine": res.get("engine", "tail-dedicated"),
+                "market_score": p.get("market_score"),
+                "fund_score": p.get("fund_score"),
+                "risk_penalty": p.get("risk_penalty"),
+                "risk_flags": p.get("risk_flags", []),
+            })
+        db.save_recommendations(base_date, picks, mode="tail")
+
+        prev_wr = db.latest_winrate(before=base_date, mode="tail")
+        title_prefix = "🕝 尾盘荐股"
+        lines = [
+            f"# {title_prefix}（{base_date} 14:30）",
+            "> 🎯 策略：尾盘买入，次日开盘/早盘验证。专属引擎：资金流 + 尾盘技术 + 市场情绪。",
+        ]
+        if prev_wr:
+            flag = "✅达标" if prev_wr["win_rate"] >= 0.5 else "⚠️偏低·已收紧尾盘模型"
+            lines.append(f"> 近期尾盘胜率 **{prev_wr['win_rate']*100:.0f}%**（{flag}）")
+        market = res.get("market") or {}
+        if market.get("note"):
+            lines.append(f"> 市场：{market['note']}")
+        if res.get("data_source"):
+            lines.append(f"> 数据源：{res['data_source']}")
+        if res.get("risk_note"):
+            lines.append(f"> 风控：{res['risk_note']}")
+        lines.append("")
+        if not picks:
+            lines.append("今日尾盘没有满足风控条件的标的，宁缺毋滥。")
+        for i, p in enumerate(picks, 1):
+            lines.append(f"**{i}. {p.get('name','')}（{p['symbol']}）** ｜ "
+                         f"入场参考 ¥{p.get('entry_price') or ''} ｜ 评分 {p.get('score','')}")
+            lines.append(f"   {p.get('reason','')}")
+            if p.get("risk_flags"):
+                lines.append(f"   风险：{'；'.join(p['risk_flags'])}")
+        md = "\n".join(lines)
+        push(f"{title_prefix}·专属引擎", md)
+        print(f"[尾盘荐股] 已推送 Top{len(picks)}")
+        return md
+
     from recommend.engine import RecommendEngine
 
     print(f"[{mode_label}] 开始生成（结算→反思→选股）...")
@@ -100,12 +165,27 @@ def job_review(force: bool = False) -> str:
         print("[复盘] 非交易日，跳过")
         return ""
     from notify import push
-    from review import run_review
+    from review.html_report import generate_and_store
 
     print("[复盘] 开始生成...")
-    md = run_review()
+    res = generate_and_store(store=True)
     from config import get_review_config
     title = get_review_config().get("title", "每日盘后复盘")
+    m = res.get("metrics") or {}
+    b = m.get("breadth") or {}
+    q = m.get("quality") or {}
+    sectors = m.get("top_sectors") or []
+    sec_txt = "、".join(
+        f"{s.get('name')}({s.get('pct')}%)" for s in sectors[:5] if s.get("name")
+    ) or "暂无"
+    md = "\n".join([
+        f"# {title}",
+        f"> 数据源：{q.get('source', '未知')}｜覆盖 {q.get('rows', '-')} 只｜{q.get('note', '')}",
+        f"> 涨跌家数：{b.get('up', '-')} / {b.get('down', '-')}，涨停 {b.get('limit_up', '-')}，跌停 {b.get('limit_down', '-')}",
+        f"> 强势板块：{sec_txt}",
+        "",
+        "完整 HTML 复盘已保存到本地历史记录，可在 Web「盘后复盘」查看。",
+    ])
     push(title, md)
     print("[复盘] 已推送")
     return md
@@ -202,9 +282,10 @@ def start_scheduler():
         sched.add_job(lambda: job_tail_recommend(settings.recommend_count),
                       CronTrigger(day_of_week="mon-fri", hour=th, minute=tm), id="tail_recommend")
 
-    # 热点驱动扫描：每12小时执行（08:00 / 20:00）
+    # 热点驱动扫描：启动后2分钟首次执行，之后每6小时
     from apscheduler.triggers.interval import IntervalTrigger as _Interval
-    sched.add_job(job_news_driven, _Interval(hours=12), id="news_driven")
+    sched.add_job(job_news_driven, _Interval(hours=6), id="news_driven",
+                  next_run_time=dt.datetime.now() + dt.timedelta(minutes=2))
 
     print("=" * 50)
     print("定时调度已启动（工作日）：")
@@ -213,7 +294,7 @@ def start_scheduler():
     print(f"  - 每日荐股推送：{settings.recommend_push_time}（含反思迭代）")
     print(f"  - 每日选股推送：{settings.select_push_time}")
     print(f"  - 盘后复盘推送：{settings.review_push_time}")
-    print(f"  - 🌍 热点驱动扫描：每12小时（全球新闻→多Agent→板块映射）")
+    print(f"  - 🌍 热点驱动扫描：每6小时（全球新闻→多Agent→板块映射）")
     print(f"  - 推送渠道：{', '.join(settings.channels)}")
     print("按 Ctrl+C 退出")
     print("=" * 50)

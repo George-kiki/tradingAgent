@@ -18,7 +18,7 @@ import pandas as pd
 
 from agents.llm import get_llm
 from config import get_review_config
-from data.fetcher import get_fetcher
+from data.fetcher import get_fetcher, _limit_threshold, normalize_symbol
 
 _WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -197,11 +197,13 @@ def _top_limit_up(spot: pd.DataFrame, n: int = 15) -> list[dict]:
         return []
     df = spot.copy()
     df["_pct"] = pd.to_numeric(df[pct_col], errors="coerce")
-    ups = df[df["_pct"] >= 9.8].sort_values("_pct", ascending=False).head(n)
+    df["_code"] = df[code_col].astype(str).map(normalize_symbol)
+    df["_limit_th"] = df["_code"].map(_limit_threshold)
+    ups = df[df["_pct"] >= df["_limit_th"]].sort_values("_pct", ascending=False).head(n)
     out = []
     for _, row in ups.iterrows():
         out.append({
-            "code": str(row[code_col]),
+            "code": str(row["_code"]),
             "name": str(row[name_col]) if name_col else "",
             "pct": round(float(row["_pct"]), 2),
             "turnover": round(float(pd.to_numeric(row.get(turn_col), errors="coerce") or 0), 2) if turn_col else None,
@@ -209,20 +211,82 @@ def _top_limit_up(spot: pd.DataFrame, n: int = 15) -> list[dict]:
     return out
 
 
+def _top_limit_down(spot: pd.DataFrame, n: int = 12) -> list[dict]:
+    """从同一份全市场快照中提取跌停/领跌个股，避免重复拉行情。"""
+    if spot is None or spot.empty:
+        return []
+    code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+    name_col = next((c for c in spot.columns if c in ("名称", "name")), None)
+    pct_col = next((c for c in spot.columns if "涨跌幅" in c), None)
+    turn_col = next((c for c in spot.columns if "换手" in c), None)
+    if not (code_col and pct_col):
+        return []
+    df = spot.copy()
+    df["_pct"] = pd.to_numeric(df[pct_col], errors="coerce")
+    df["_code"] = df[code_col].astype(str).map(normalize_symbol)
+    df["_limit_th"] = df["_code"].map(_limit_threshold)
+    downs = df[df["_pct"] <= -df["_limit_th"]].sort_values("_pct").head(n)
+    out = []
+    for _, row in downs.iterrows():
+        out.append({
+            "code": str(row["_code"]),
+            "name": str(row[name_col]) if name_col else "",
+            "pct": round(float(row["_pct"]), 2),
+            "turnover": round(float(pd.to_numeric(row.get(turn_col), errors="coerce") or 0), 2) if turn_col else None,
+        })
+    return out
+
+
+def _spot_quality(fetcher, spot: pd.DataFrame) -> dict:
+    """评估复盘快照质量，避免半截/过期数据被当作收盘数据。"""
+    source = getattr(fetcher, "last_market_spot_source", "未知")
+    stale = bool(getattr(fetcher, "last_market_spot_stale", False))
+    rows = int(len(spot)) if spot is not None else 0
+    cols = list(spot.columns) if spot is not None and not spot.empty else []
+
+    def has(*names: str) -> bool:
+        return any(any(n in str(c) for n in names) for c in cols)
+
+    missing = []
+    if rows < 800:
+        missing.append("全市场覆盖不足")
+    if not has("涨跌幅"):
+        missing.append("缺涨跌幅")
+    if not has("最新价", "现价", "close", "price"):
+        missing.append("缺价格")
+    if not has("成交额", "成交金额"):
+        missing.append("缺成交额")
+    if not has("换手"):
+        missing.append("缺换手率")
+    level = "good" if rows >= 800 and not stale and not missing else "partial" if rows >= 800 else "bad"
+    note = "数据质量良好" if level == "good" else ("；".join(missing) or "数据为缓存兜底")
+    if stale:
+        note = "缓存兜底；" + note
+    return {"source": source, "stale": stale, "rows": rows, "level": level,
+            "missing": missing, "note": note}
+
+
 def _collect_data(fetcher) -> dict:
     """尽力收集复盘所需的当日真实数据，单项失败不影响其余。
-    
-    每次调用强制刷新市场级别数据（指数/板块/龙虎榜/快照），
-    避免缓存返回上一交易日的旧数据。
+
+    复盘阶段优先复用同一份全市场快照，保证各模块口径一致。
+    不再强制清空 spot 缓存，避免数据源抖动时拿到半截数据。
     """
-    # 清除市场级别缓存，确保拿到当日收盘数据
-    from data.cache import invalidate_pattern
-    for prefix in ("spot:all:", "as_spot_", "index_spot", "as_sectors:", "as_lhb_map"):
-        invalidate_pattern(prefix)
+    from data.cache import invalidate_cache
+    for key in ("index_spot", "global_indices", "as_sectors:14", "as_sectors:10",
+                "sectors:14", "as_lhb_map"):
+        invalidate_cache(key)
 
     data: dict = {"indices": [], "breadth": {}, "sectors": [], "limit_up": [],
                   "limit_down": [], "lhb_top": [], "global": [], "limit_history": [],
-                  "core_large_caps": []}
+                  "core_large_caps": [], "quality": {}}
+    spot = pd.DataFrame()
+    try:
+        spot = fetcher.get_market_spot()
+        data["quality"] = _spot_quality(fetcher, spot)
+    except Exception as e:
+        data["quality"] = {"source": "无可用快照源", "stale": False, "rows": 0,
+                           "level": "bad", "missing": ["快照获取失败"], "note": str(e)}
     try:
         data["indices"] = fetcher.get_index_spot()
     except Exception:
@@ -236,13 +300,27 @@ def _collect_data(fetcher) -> dict:
     except Exception:
         pass
     try:
-        data["limit_up"] = _top_limit_up(fetcher.get_market_spot(), n=15)
+        pools = fetcher.get_limit_pools()
+        if pools.get("official"):
+            data["limit_up"] = (pools.get("limit_up") or [])[:15]
+            data["limit_down"] = (pools.get("limit_down") or [])[:12]
+            data["limit_source"] = pools.get("source", "东方财富涨跌停股池")
+            data["limit_scope"] = pools.get("limit_scope", "")
+            data.setdefault("breadth", {})
+            data["breadth"]["limit_up"] = int(pools.get("limit_up_total") or len(pools.get("limit_up") or []))
+            data["breadth"]["limit_down"] = int(pools.get("limit_down_total") or len(pools.get("limit_down") or []))
+            if pools.get("sealed_limit_up_total") is not None:
+                data["breadth"]["sealed_limit_up"] = pools.get("sealed_limit_up_total")
+            if pools.get("broken_limit_up_total") is not None:
+                data["breadth"]["broken_limit_up"] = pools.get("broken_limit_up_total")
+        else:
+            data["limit_up"] = _top_limit_up(spot, n=15)
+            data["limit_down"] = _top_limit_down(spot, n=12)
+            data["limit_source"] = "快照按板块阈值估算"
     except Exception:
-        pass
-    try:
-        data["limit_down"] = fetcher.get_limit_down_stocks(n=12)
-    except Exception:
-        pass
+        data["limit_up"] = _top_limit_up(spot, n=15)
+        data["limit_down"] = _top_limit_down(spot, n=12)
+        data["limit_source"] = "快照按板块阈值估算"
     try:
         data["global"] = fetcher.get_global_indices()
     except Exception:
@@ -266,7 +344,6 @@ def _collect_data(fetcher) -> dict:
     except Exception:
         pass
     try:
-        spot = fetcher.get_market_spot()
         if spot is not None and not spot.empty:
             code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
             name_col = next((c for c in spot.columns if c in ("名称", "name")), None)
@@ -312,6 +389,9 @@ def _collect_data(fetcher) -> dict:
 def _data_to_facts(data: dict) -> str:
     """把结构化数据整理成喂给 LLM 的事实文本。"""
     lines: list[str] = []
+    q = data.get("quality") or {}
+    if q:
+        lines.append(f"【数据质量】来源：{q.get('source')}；覆盖{q.get('rows')}只；状态{q.get('level')}；说明：{q.get('note')}")
     if data.get("indices"):
         idx_txt = "；".join(f"{i['name']} {i.get('price','-')}（{i.get('pct')}%）" for i in data["indices"])
         lines.append(f"【主要指数】{idx_txt}")
@@ -322,6 +402,9 @@ def _data_to_facts(data: dict) -> str:
             f"涨停{b.get('limit_up')}家/跌停{b.get('limit_down')}家；"
             f"全市场平均涨幅{b.get('avg_pct')}%（中位数{b.get('median_pct')}%）"
         )
+        if data.get("limit_source"):
+            scope = f"；口径：{data.get('limit_scope')}" if data.get("limit_scope") else ""
+            lines.append(f"【涨跌停数据源】{data.get('limit_source')}{scope}")
     if data.get("limit_history"):
         h = data["limit_history"]
         recent = h[-6:]
@@ -354,9 +437,9 @@ def _data_to_facts(data: dict) -> str:
 
 # ---------------- LLM 生成正文 ----------------
 _SYSTEM = (
-    "你是一位实战派A股游资策略师，擅长情绪周期、连板梯队与主线轮动分析，深谙赵老哥、"
+    "你是一位实战派A股游资策略师，擅长情绪周期与主线轮动分析，深谙赵老哥、"
     "刺客等顶尖游资的交易哲学。你将收到今日真实市场数据，请撰写一份专业、犀利、可执行的"
-    "盘后复盘报告。"
+    "盘后复盘报告。重要原则：只分析提供给你的真实数据，不要编造数据中没有的连板高度（如3板、4板等）。没有连板数据就用「涨停」标记。"
     "第十一板块「全日复盘总结」是全文压轴，必须写得像实战游资的复盘笔记："
     "用「今日最迷惑的」「真正杀人于无形」等反直觉开篇，"
     "逐板块深度剖析（定性、逻辑、风险、玩法），"
@@ -421,13 +504,13 @@ def _build_user_prompt(facts: str, custom: str, has_chart: bool, holdings: list[
    - <h3>❌ 重挫板块</h3> + <table>（板块/触发因素/跌停代表）
 
 五、<h2>五、涨停股深度分析</h2>
-   - <h3>🔥 连板梯队</h3> + <table>（高度/个股/板块/封板质量/逻辑），梳理龙头与梯队是否完整
-   - 「高度」列用 <span class="tag tag-gold">3板</span> 这种徽章
+   - <h3>🔥 涨停个股分析</h3> + <table>（个股/所属板块/封板质量/核心逻辑），分析涨停驱动力
+   - ⚠️ 重要：严禁编造「X板」等连板高度！系统未提供连板数据，请一律使用「涨停」(<span class="tag tag-gold">涨停</span>) 或「首板」(<span class="tag tag-green">首板</span>) 标记，切勿凭空猜测 2板/3板/4板
    - <h3>涨停驱动分类</h3>：用 <div class="card card-gold/blue/green"> 分「涨价驱动/政策驱动/避险驱动」并点评持续性
 
 六、<h2>六、跌停股分析</h2>
    - <table>（类型<span class="tag tag-red">/代表/核心原因），分类如高位补跌/利空冲击/板块退潮/概念证伪
-   - 用 <div class="warn-box"> 点评杀跌性质与连板晋级率
+   - 用 <div class="warn-box"> 点评杀跌性质（不涉及连板数据）
 
 七、<h2>七、龙虎榜与资金动向</h2>
    - 用 <div class="card card-gold"> + <ul> 列主流资金动向（主力净流入板块、机构/游资席位、北向、是否机构缺席需警惕）
@@ -542,9 +625,14 @@ def _arrow(pct) -> str:
 def _build_body_fallback(data: dict, chart_svg: str) -> str:
     parts: list[str] = []
     b = data.get("breadth") or {}
+    q = data.get("quality") or {}
 
     # 一、大盘总览
     parts.append('<h2>一、大盘总览</h2>')
+    if q:
+        cls = "card-green" if q.get("level") == "good" else "card-gold" if q.get("level") == "partial" else "card-red"
+        parts.append(f'<div class="card {cls}"><strong>数据质量：</strong>{q.get("note","-")}<br>'
+                     f'<span class="dim">来源：{q.get("source","未知")} ｜ 覆盖 {q.get("rows",0)} 只</span></div>')
     idx = data.get("indices") or []
     if idx:
         cells = ""
@@ -565,6 +653,13 @@ def _build_body_fallback(data: dict, chart_svg: str) -> str:
             '</div>'
         )
         mood = "偏强、赚钱效应回暖" if b.get("up", 0) > b.get("down", 0) else "偏弱、亏钱效应明显"
+        if data.get("limit_source"):
+            extra = ""
+            if b.get("sealed_limit_up") is not None and b.get("broken_limit_up") is not None:
+                extra = f' ｜ 封板 {b.get("sealed_limit_up")} / 炸板 {b.get("broken_limit_up")}'
+            scope = f' ｜ {data.get("limit_scope")}' if data.get("limit_scope") else ""
+            parts.append(f'<div class="card card-blue"><strong>涨跌停口径：</strong>{data.get("limit_source")}'
+                         f'{scope}{extra}</div>')
         parts.append(f'<div class="card card-gold"><strong class="gold">📅 情绪定位</strong><br>'
                      f'全市场上涨 {b.get("up")} 家 / 下跌 {b.get("down")} 家，涨停 {b.get("limit_up")} / 跌停 '
                      f'{b.get("limit_down")}，当日情绪{mood}。</div>')
@@ -740,6 +835,9 @@ def _extract_metrics(data: dict) -> dict:
         "indices": data.get("indices") or [],
         "breadth": b,
         "global": data.get("global") or [],
+        "quality": data.get("quality") or {},
+        "limit_source": data.get("limit_source"),
+        "limit_scope": data.get("limit_scope"),
         "top_sectors": [{"name": s.get("name"), "pct": s.get("pct"),
                          "leader": s.get("leader")} for s in ups],
         "limit_up_count": b.get("limit_up"),
@@ -771,14 +869,17 @@ def _render(data: dict, config: dict, fetcher, llm, holdings: list[str] | None =
     now = dt.datetime.now()
     title = config.get("title", "每日盘后复盘")
     date_cn = now.strftime("%Y年%m月%d日")
-    subtitle = f"{date_cn} · {_WEEKDAYS[now.weekday()]} · 数据截至收盘 · 数据源：{fetcher.active_source}"
+    q = data.get("quality") or {}
+    source = q.get("source") or fetcher.active_source
+    q_note = f" · {q.get('note')}" if q and q.get("level") != "good" else ""
+    subtitle = f"{date_cn} · {_WEEKDAYS[now.weekday()]} · 数据截至收盘 · 数据源：{source}{q_note}"
 
     return (HTML_SKELETON
             .replace("{{TITLE}}", title)
             .replace("{{DATE}}", date_cn)
             .replace("{{SUBTITLE}}", subtitle)
             .replace("{{NOW}}", now.strftime("%Y年%m月%d日 %H:%M"))
-            .replace("{{SOURCE}}", fetcher.active_source)
+            .replace("{{SOURCE}}", source)
             .replace("{{BODY}}", body))
 
 

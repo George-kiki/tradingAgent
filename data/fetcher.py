@@ -20,7 +20,7 @@ from typing import Callable, Optional
 
 import pandas as pd
 
-from data.cache import cached_call
+from data.cache import cached_call, cached_call_with_stale, get_cached
 
 try:
     import akshare as ak
@@ -75,6 +75,24 @@ def normalize_symbol(symbol: str) -> str:
     return s.zfill(6) if s.isdigit() else symbol.strip()
 
 
+def _limit_threshold(code: str) -> float:
+    """按板块返回涨跌停阈值：主板10cm、创业/科创20cm、北交所30cm。"""
+    s = normalize_symbol(str(code))
+    if s.startswith(("300", "301", "688")):
+        return 19.5
+    if s.startswith(("4", "8", "9")):
+        return 29.5
+    return 9.8
+
+
+def _row_value(row, *patterns: str):
+    for p in patterns:
+        for k in row.keys():
+            if p in str(k):
+                return row.get(k)
+    return None
+
+
 class DataFetcher:
     """统一数据访问入口。
 
@@ -94,6 +112,8 @@ class DataFetcher:
             self._as = None
         self._last_market_spot_source = ""
         self._last_kline_source = ""
+        self._last_market_spot_stale = False
+        self._source_health: dict[str, dict] = {}
 
     @property
     def active_source(self) -> str:
@@ -111,8 +131,36 @@ class DataFetcher:
         return self._last_market_spot_source or "未知"
 
     @property
+    def last_market_spot_stale(self) -> bool:
+        return self._last_market_spot_stale
+
+    @property
     def last_kline_source(self) -> str:
         return self._last_kline_source or "未知"
+
+    @property
+    def source_health(self) -> dict[str, dict]:
+        """数据源健康状态快照，供 Web/日志展示。"""
+        return dict(self._source_health)
+
+    def _record_source(self, name: str, ok: bool, rows: int = 0, error: str = "", elapsed: float = 0.0) -> None:
+        h = self._source_health.setdefault(name, {
+            "success": 0,
+            "failure": 0,
+            "last_ok": "",
+            "last_error": "",
+            "last_rows": 0,
+            "last_elapsed": 0.0,
+        })
+        if ok:
+            h["success"] += 1
+            h["last_ok"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            h["last_error"] = ""
+            h["last_rows"] = int(rows or 0)
+        else:
+            h["failure"] += 1
+            h["last_error"] = (error or "empty result")[:180]
+        h["last_elapsed"] = round(float(elapsed or 0.0), 3)
 
     # ---------- 历史 K 线 ----------
     def get_kline(
@@ -609,9 +657,12 @@ class DataFetcher:
         except Exception:
             return None
 
-        # 快速预检：3s 内连不上直接放弃，不拖慢降级链
+        started = time.time()
+        max_seconds = 8.0
+
+        # 快速预检：2s 内连不上直接放弃，不拖慢降级链
         try:
-            _check = requests.head("https://push2.eastmoney.com", timeout=3)
+            _check = requests.head("https://push2.eastmoney.com", timeout=2)
         except Exception:
             return None
 
@@ -627,8 +678,11 @@ class DataFetcher:
             "Accept": "*/*",
             "Connection": "close",  # 规避长连接被服务器中途重置
         })
-        # 沪深京 A 股过滤串（与东财官方一致）
-        fs = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048"
+        # 沪深京 A 股 — 东财API对单次查询有~3000条隐形上限，
+        # 按代码升序时会漏掉沪市(60xxxx)。拆分为沪市+深市两次查询。
+        # m:0=沪市 m:1=深市 s:2048=正常交易
+        fs_sh = "m:0+t:6,m:0+t:80,m:0+t:81 s:2048"
+        fs_sz = "m:1+t:2,m:1+t:23 s:2048"
         # f12代码 f14名称 f2最新价 f3涨跌幅 f6成交额 f8换手率 f9市盈率 f10量比
         # f20总市值 f23市净率 f62主力净流入 f184主力净占比
         fields = "f12,f14,f2,f3,f6,f8,f9,f10,f20,f23,f62,f184"
@@ -637,14 +691,14 @@ class DataFetcher:
             v = d.get(k)
             return None if v in ("-", "", None) else v
 
-        def _page(host, pn, pz):
+        def _page(host, pn, pz, fs_filter):
             params = {
                 "pn": pn, "pz": pz, "po": 0, "np": 1,
                 "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-                "fltt": 2, "invt": 2, "fid": "f12",  # 按代码升序，保证翻页覆盖全市场
-                "fs": fs, "fields": fields,
+                "fltt": 2, "invt": 2, "fid": "f12",
+                "fs": fs_filter, "fields": fields,
             }
-            resp = sess.get(host + "/api/qt/clist/get", params=params, timeout=20)
+            resp = sess.get(host + "/api/qt/clist/get", params=params, timeout=3)
             js = resp.json()
             data = (js or {}).get("data") or {}
             diff = data.get("diff")
@@ -654,38 +708,46 @@ class DataFetcher:
         hosts = ("https://82.push2.eastmoney.com",
                  "https://push2.eastmoney.com",
                  "https://13.push2.eastmoney.com")
-        pz = 500
+        pz = 800
         seen, rows, total = set(), [], 0
-        for host in hosts:
-            try:
-                pn = 1
-                while pn <= 30:
-                    try:
-                        items, tot = _page(host, pn, pz)
-                    except Exception:
-                        time.sleep(0.5)
-                        try:
-                            items, tot = _page(host, pn, pz)  # 该页二次尝试
-                        except Exception:
-                            break  # 该页彻底失败，跳出用已得数据
-                    if tot:
-                        total = tot
-                    if not items:
-                        break
-                    for d in items:
-                        code = str(_g(d, "f12") or "").zfill(6)
-                        if code and code not in seen:
-                            seen.add(code)
-                            rows.append(d)
-                    if total and len(rows) >= total:
-                        break
-                    pn += 1
-                    time.sleep(0.5)
-                # 拿到足够多即停（不再换 host）；800 太少会导致沪市整段缺失，至少拉到覆盖沪深两市主代码段
-                if rows and (not total or len(rows) >= total * 0.85 or len(rows) >= 3500):
+
+        def _fetch_market(fs_filter, label):
+            """拉取一个市场段（沪或深），返回该段的行数和总计。"""
+            nonlocal total
+            for host in hosts:
+                if time.time() - started > max_seconds:
                     break
-            except Exception:
-                continue
+                try:
+                    pn = 1
+                    while pn <= 20 and time.time() - started <= max_seconds:
+                        try:
+                            items, tot = _page(host, pn, pz, fs_filter)
+                        except Exception:
+                            time.sleep(0.5)
+                            try:
+                                items, tot = _page(host, pn, pz, fs_filter)
+                            except Exception:
+                                break
+                        if tot:
+                            total = max(total, tot)
+                        if not items:
+                            break
+                        for d in items:
+                            code = str(_g(d, "f12") or "").zfill(6)
+                            if code and code not in seen:
+                                seen.add(code)
+                                rows.append(d)
+                        pn += 1
+                        time.sleep(0.3)
+                    # 该市场段拉到足够数据
+                    if items:
+                        break
+                except Exception:
+                    continue
+
+        _fetch_market(fs_sz, "深市")
+        if time.time() - started <= max_seconds:
+            _fetch_market(fs_sh, "沪市")
 
         if not rows:
             return None
@@ -714,7 +776,9 @@ class DataFetcher:
     def get_market_spot(self) -> pd.DataFrame:
         """A股全市场实时快照（涨跌幅、市值、换手、量比等）。
 
-        数据源优先级：A-Stock直连(腾讯/东财) → Tushare → AkShare → 新浪。
+        数据源优先级：
+        盘中：东财直连 → 腾讯 → Tushare → AkShare东财 → 新浪 → 最近成功缓存
+        盘后：腾讯 → Tushare → 东财直连 → AkShare东财 → 新浪 → 最近成功缓存
         """
         import datetime as _dt
         _now = _dt.datetime.now()
@@ -722,53 +786,35 @@ class DataFetcher:
 
         key = "spot:all:v3"
 
-        def _fetch():
-            # 主源1：A-Stock直连
+        def _rows(df) -> int:
+            try:
+                return int(len(df)) if df is not None else 0
+            except Exception:
+                return 0
+
+        def _valid_spot(df) -> bool:
+            if df is None or df.empty:
+                return False
+            code_col = next((c for c in df.columns if c in ("代码", "股票代码", "symbol", "code")), None)
+            price_col = next((c for c in df.columns if c in ("最新价", "close", "price") or "最新" in c), None)
+            # 全市场快照如果只拿到几十/一两百只，通常是源端分页/限流异常。
+            # 不把这种半截数据视为成功，继续降级到其它源或最近成功缓存。
+            return bool(code_col and price_col and len(df) >= 800)
+
+        def _source_candidates():
+            candidates = []
             if self._as:
-                # 盘中：东财直连实时行情（字段全、实时性好）
                 if _is_trading_hours:
-                    df = self._spot_em_direct()
-                    if df is not None and not df.empty:
-                        return df
-                # 腾讯财经快照（不封IP，盘中盘后都可用）
-                try:
-                    df_tencent = self._as.get_market_spot()
-                    if df_tencent is not None and not df_tencent.empty:
-                        return df_tencent
-                except Exception:
-                    pass
-
-            # 主源2：Tushare 日级快照
+                    candidates.append(("东方财富直连", self._spot_em_direct, False))
+            if self._as and not _is_trading_hours:
+                candidates.append(("东方财富直连", self._spot_em_direct, False))
+            if ak is not None:
+                candidates.append(("东方财富(AkShare封装)", lambda: _retry(lambda: ak.stock_zh_a_spot_em(), retries=1), False))
             if self._ts and self._ts.ready:
-                try:
-                    df = self._ts.get_market_spot_all()
-                    if df is not None and not df.empty:
-                        df.attrs["source"] = "Tushare日级快照"
-                        print(f"[快照] Tushare 全市场快照成功，{len(df)} 只")
-                        return df
-                except Exception:
-                    pass
-
-            # 主源3：东财直连（A-Stock/Tushare不可用）
-            if not _is_trading_hours:
-                df = self._spot_em_direct()
-                if df is not None and not df.empty:
-                    return df
-
-            # 兜底：AkShare 封装东财（东财不可达时直接跳过，降级到新浪）
+                candidates.append(("Tushare日级快照", self._ts.get_market_spot_all, False))
             if ak is not None:
-                try:
-                    df = _retry(lambda: ak.stock_zh_a_spot_em(), retries=1)
-                    if df is not None and not df.empty:
-                        df.attrs["source"] = "东方财富(AkShare封装)实时快照兜底"
-                        return df
-                except Exception:
-                    pass
 
-            # 最终兜底：新浪
-            if ak is not None:
-                print("[快照] 所有源不可用，切换新浪备用源（量比/换手/市值将降级）...")
-                try:
+                def _sina_spot():
                     s = _retry(lambda: ak.stock_zh_a_spot(), retries=1)
                     if s is not None and not s.empty:
                         s = s.copy()
@@ -776,17 +822,52 @@ class DataFetcher:
                         if code_col:
                             s[code_col] = s[code_col].astype(str).str.replace(
                                 r"^(sh|sz|bj)", "", regex=True)
-                        s.attrs["source"] = "新浪实时快照兜底"
-                        return s
-                except Exception:
-                    pass
+                    return s
+
+                candidates.append(("新浪实时快照", _sina_spot, True))
+            if self._as:
+                candidates.append(("腾讯财经", self._as.get_market_spot, True))
+            return candidates
+
+        def _fetch():
+            stale_available = get_cached(key, ttl=86400, allow_expired=True) is not None
+            attempted = 0
+            for name, getter, slow in _source_candidates():
+                if stale_available and (slow or attempted > 0):
+                    return None
+                start = time.time()
+                try:
+                    df = getter()
+                    elapsed = time.time() - start
+                    attempted += 1
+                    if _valid_spot(df):
+                        df = df.copy()
+                        df.attrs["source"] = df.attrs.get("source") or name
+                        df.attrs["stale"] = False
+                        self._record_source(name, True, rows=_rows(df), elapsed=elapsed)
+                        print(f"[快照] {df.attrs['source']} 成功，{len(df)} 只")
+                        return df
+                    self._record_source(name, False, rows=_rows(df), error="empty or incomplete result", elapsed=elapsed)
+                except Exception as e:
+                    attempted += 1
+                    self._record_source(name, False, error=str(e), elapsed=time.time() - start)
             return None
 
-        df = cached_call(key, _fetch, ttl=600)
+        # 盘中给短 TTL，盘后稍长；全部源失败时允许返回最近 24h 的成功快照。
+        ttl = 10 if _is_trading_hours else 600
+        df, is_stale, age = cached_call_with_stale(key, _fetch, ttl=ttl, stale_ttl=86400)
         if df is not None and not df.empty:
+            df = df.copy()
+            df.attrs["stale"] = bool(is_stale)
+            if is_stale:
+                src = df.attrs.get("source", "最近成功快照")
+                mins = int((age or 0) // 60)
+                df.attrs["source"] = f"{src}（缓存兜底，约{mins}分钟前）"
             self._last_market_spot_source = df.attrs.get("source", "未知快照源")
+            self._last_market_spot_stale = bool(is_stale)
             return df
         self._last_market_spot_source = "无可用快照源"
+        self._last_market_spot_stale = False
         return pd.DataFrame()
 
     # ---------- 市场广度（涨跌家数）----------
@@ -814,20 +895,172 @@ class DataFetcher:
         if not pct_col:
             return {}
         pct = pd.to_numeric(spot[pct_col], errors="coerce").dropna()
+        pools = self.get_limit_pools(as_of=as_of)
+        limit_up = int(pools.get("limit_up_total") or len(pools.get("limit_up") or []))
+        limit_down = int(pools.get("limit_down_total") or len(pools.get("limit_down") or []))
+        if not pools.get("official"):
+            code_col = next((c for c in spot.columns if c in ("代码", "symbol", "code")), None)
+            if code_col:
+                lu = ld = 0
+                tmp = spot[[code_col, pct_col]].copy()
+                tmp["_pct"] = pd.to_numeric(tmp[pct_col], errors="coerce")
+                for _, row in tmp.dropna(subset=["_pct"]).iterrows():
+                    code = str(row[code_col]).strip()
+                    th = _limit_threshold(code)
+                    val = float(row["_pct"])
+                    if val >= th:
+                        lu += 1
+                    elif val <= -th:
+                        ld += 1
+                limit_up, limit_down = lu, ld
         return {
             "total": int(len(pct)),
             "up": int((pct > 0).sum()),
             "down": int((pct < 0).sum()),
             "flat": int((pct == 0).sum()),
-            "limit_up": int((pct >= 9.8).sum()),
-            "limit_down": int((pct <= -9.8).sum()),
+            "limit_up": limit_up,
+            "limit_down": limit_down,
             "avg_pct": round(float(pct.mean()), 2),
             "median_pct": round(float(pct.median()), 2),
         }
 
+    def get_limit_pools(self, as_of: str = "", limit: int = 500) -> dict:
+        """涨停/跌停股池，供复盘数字和明细统一口径。
+
+        优先使用同花顺问财口径；不可用时用东方财富「封板 + 炸板」近似
+        同花顺软件里的日内触板统计，最后再退回封板池口径。
+        """
+        import datetime as _dt
+        ds = (as_of or _dt.date.today().strftime("%Y-%m-%d")).replace("-", "")
+        key = f"limit_pools:v3:{ds}:{limit}"
+
+        def _row_to_item(row) -> dict:
+            code = normalize_symbol(str(_row_value(row, "代码", "code", "股票代码", "证券代码") or ""))
+            name = str(_row_value(row, "名称", "name", "股票简称", "股票简称") or "")
+            pct = pd.to_numeric(_row_value(row, "涨跌幅", "涨幅", "最新涨跌幅"), errors="coerce")
+            turn = pd.to_numeric(_row_value(row, "换手率", "换手"), errors="coerce")
+            return {
+                "code": code,
+                "name": name,
+                "pct": round(float(pct), 2) if pd.notna(pct) else None,
+                "turnover": round(float(turn), 2) if pd.notna(turn) else None,
+            }
+
+        def _valid_item(x: dict) -> bool:
+            code = str(x.get("code") or "")
+            name = str(x.get("name") or "")
+            return bool(code) and "退" not in name
+
+        def _uniq(items: list[dict]) -> list[dict]:
+            seen, out = set(), []
+            for x in items:
+                code = str(x.get("code") or "")
+                if code and code not in seen:
+                    seen.add(code)
+                    out.append(x)
+            return out
+
+        def _fetch_iwencai():
+            """同花顺问财口径，通常与同花顺客户端行情总览最接近。"""
+            try:
+                import pywencai  # type: ignore
+            except Exception:
+                return None
+
+            date_cn = f"{ds[:4]}年{int(ds[4:6])}月{int(ds[6:8])}日"
+
+            def _query(q: str):
+                try:
+                    return pywencai.get(query=q, loop=True)
+                except TypeError:
+                    return pywencai.get(query=q)
+
+            try:
+                up_df = _query(f"{date_cn} 涨停股票")
+                down_df = _query(f"{date_cn} 跌停股票")
+                up_items = []
+                down_items = []
+                if up_df is not None and not up_df.empty:
+                    up_items = [_row_to_item(r) for _, r in up_df.iterrows()]
+                    up_items = [x for x in up_items if _valid_item(x)]
+                if down_df is not None and not down_df.empty:
+                    down_items = [_row_to_item(r) for _, r in down_df.iterrows()]
+                    down_items = [x for x in down_items if _valid_item(x)]
+                up_items = _uniq(up_items)
+                down_items = _uniq(down_items)
+                if not up_items and not down_items:
+                    return None
+                return {
+                    "official": True,
+                    "source": "同花顺问财涨跌停股池",
+                    "date": ds,
+                    "limit_up": up_items[:limit],
+                    "limit_down": down_items[:limit],
+                    "limit_up_total": len(up_items),
+                    "limit_down_total": len(down_items),
+                    "limit_scope": "同花顺软件口径",
+                }
+            except Exception:
+                return None
+
+        def _fetch_eastmoney():
+            if ak is None:
+                return None
+            try:
+                up_df = ak.stock_zt_pool_em(date=ds)
+                broken_df = ak.stock_zt_pool_zbgc_em(date=ds)
+                down_df = ak.stock_zt_pool_dtgc_em(date=ds)
+                up_items = []
+                broken_items = []
+                down_items = []
+                sealed_up_total = 0
+                broken_up_total = 0
+                down_total = 0
+                if up_df is not None and not up_df.empty:
+                    up_all = [_row_to_item(r) for _, r in up_df.iterrows()]
+                    up_all = [x for x in up_all if _valid_item(x)]
+                    sealed_up_total = len(_uniq(up_all))
+                    up_items = up_all[:limit]
+                if broken_df is not None and not broken_df.empty:
+                    broken_all = [_row_to_item(r) for _, r in broken_df.iterrows()]
+                    broken_all = [x for x in broken_all if _valid_item(x)]
+                    broken_items = _uniq(broken_all)
+                    broken_up_total = len(broken_items)
+                if down_df is not None and not down_df.empty:
+                    down_all = [_row_to_item(r) for _, r in down_df.iterrows()]
+                    down_all = [x for x in down_all if _valid_item(x)]
+                    down_items = down_all[:limit]
+                    down_total = len(_uniq(down_all))
+                touched_up = _uniq(up_items + broken_items)
+                if not touched_up and not down_items:
+                    return None
+                return {
+                    "official": True,
+                    "source": "东方财富涨停池+炸板池（同花顺触板口径近似）",
+                    "date": ds,
+                    "limit_up": touched_up[:limit],
+                    "limit_down": down_items,
+                    "limit_up_total": len(touched_up),
+                    "limit_down_total": down_total,
+                    "sealed_limit_up_total": sealed_up_total,
+                    "broken_limit_up_total": broken_up_total,
+                    "limit_scope": "日内触及涨停；跌停为东财跌停池",
+                }
+            except Exception:
+                return None
+
+        def _fetch():
+            return _fetch_iwencai() or _fetch_eastmoney()
+
+        return cached_call(key, _fetch, ttl=1800) or {
+            "official": False, "source": "涨跌停股池不可用",
+            "date": ds, "limit_up": [], "limit_down": [],
+            "limit_up_total": 0, "limit_down_total": 0,
+        }
+
     # ---------- 板块/热点榜 ----------
     def get_hot_sectors(self, limit: int = 10) -> list[dict]:
-        """行业板块涨幅榜（热点）。A-Stock直连 → Tushare → AkShare → 自聚合。"""
+        """行业板块涨幅榜（热点）。A-Stock直连 → AkShare(东财) → Tushare → 自聚合。"""
         # 优先 A-Stock直连（内部已有东财→自聚合兜底）
         if self._as:
             try:
@@ -836,20 +1069,12 @@ class DataFetcher:
                     return as_out
             except Exception:
                 pass
-        # 备选：Tushare（同花顺板块）
-        if self._ts and self._ts.ready:
-            try:
-                ts_out = self._ts.get_hot_sectors(limit=limit)
-                if ts_out:
-                    return ts_out
-            except Exception:
-                pass
-        # 备选：AkShare 东财封装
+        # 备选：AkShare 东财封装（实时性好，Tushare同花顺有延迟）
         if ak is not None:
             key = f"sectors:{limit}"
             def _fetch():
                 try:
-                    df = _retry(lambda: ak.stock_board_industry_name_em(), retries=3)
+                    df = _retry(lambda: ak.stock_board_industry_name_em(), retries=1)
                     if df is None or df.empty:
                         return None
                     pct_col = next((c for c in df.columns if "涨跌幅" in c), None)
@@ -868,11 +1093,43 @@ class DataFetcher:
                     return out
                 except Exception:
                     return None
-            ak_out = cached_call(key, _fetch, ttl=1800)
+            ak_out = cached_call(key, _fetch, ttl=600)  # 10分钟TTL，保证实时性
             if ak_out:
                 return ak_out
-
-        # 最终兜底：全市场快照自聚合（绕过所有东财依赖）
+        # 再次备选：全市场快照自聚合（实时数据，东财挂了也不受影响）
+        if self._as:
+            try:
+                agg_out = self._as.get_hot_sectors_from_snapshot(limit=limit)
+                if agg_out:
+                    return agg_out
+            except Exception:
+                pass
+        # 再次备选：新浪行业板块（不依赖东财，实时性可靠）
+        if ak is not None:
+            try:
+                df = ak.stock_sector_spot(indicator="新浪行业")
+                if df is not None and not df.empty and "涨跌幅" in df.columns:
+                    df = df.sort_values("涨跌幅", ascending=False).head(limit)
+                    name_col = next((c for c in df.columns if c == "板块"), None)
+                    pct_col = "涨跌幅"
+                    lead_col = next((c for c in df.columns if "股票名称" in c), None)
+                    if name_col:
+                        return [
+                            {"name": str(row[name_col]),
+                             "pct": round(float(row[pct_col]), 2),
+                             "leader": str(row[lead_col]) if lead_col else ""}
+                            for _, row in df.iterrows()
+                        ]
+            except Exception:
+                pass
+        # 最后备选：Tushare（同花顺板块，可能有1天延迟）
+        if self._ts and self._ts.ready:
+            try:
+                ts_out = self._ts.get_hot_sectors(limit=limit)
+                if ts_out:
+                    return ts_out
+            except Exception:
+                pass
         if self._as:
             try:
                 as_out = self._as.get_hot_sectors_from_snapshot(limit=limit)

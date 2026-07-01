@@ -67,17 +67,31 @@ def _key_to_path(key: str) -> str:
     return os.path.join(settings.cache_dir, f"{h}.pkl")
 
 
-def get_cached(key: str, ttl: Optional[int] = None) -> Optional[Any]:
-    """读取缓存；过期或不存在返回 None。"""
+def get_cached(key: str, ttl: Optional[int] = None, allow_expired: bool = False) -> Optional[Any]:
+    """读取缓存；过期或不存在返回 None。
+
+    allow_expired=True 时忽略 TTL，用于实时数据源临时失效时返回最近一次成功值。
+    """
     ttl = settings.cache_ttl if ttl is None else ttl
     path = _key_to_path(key)
     if not os.path.exists(path):
         return None
-    if ttl > 0 and (time.time() - os.path.getmtime(path)) > ttl:
+    if not allow_expired and ttl > 0 and (time.time() - os.path.getmtime(path)) > ttl:
         return None
     try:
         with open(path, "rb") as f:
             return pickle.load(f)
+    except Exception:
+        return None
+
+
+def get_cache_age(key: str) -> Optional[float]:
+    """返回缓存年龄（秒）；不存在返回 None。"""
+    path = _key_to_path(key)
+    if not os.path.exists(path):
+        return None
+    try:
+        return max(0.0, time.time() - os.path.getmtime(path))
     except Exception:
         return None
 
@@ -92,15 +106,58 @@ def set_cached(key: str, value: Any) -> None:
         pass
 
 
+def is_cacheable_value(value: Any) -> bool:
+    """判断结果是否值得写入缓存，避免空结果污染后续调用。"""
+    if value is None:
+        return False
+    try:
+        import pandas as pd  # type: ignore
+        if isinstance(value, pd.DataFrame):
+            return not value.empty
+    except Exception:
+        pass
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) > 0
+    return True
+
+
 def cached_call(key: str, func: Callable[[], Any], ttl: Optional[int] = None) -> Any:
     """带缓存的函数调用包装。"""
     val = get_cached(key, ttl)
     if val is not None:
         return val
     val = func()
-    if val is not None:
+    if is_cacheable_value(val):
         set_cached(key, val)
     return val
+
+
+def cached_call_with_stale(
+    key: str,
+    func: Callable[[], Any],
+    ttl: Optional[int] = None,
+    stale_ttl: Optional[int] = None,
+) -> tuple[Any, bool, Optional[float]]:
+    """带过期兜底的缓存调用。
+
+    返回 (value, is_stale, cache_age_seconds)。正常命中或拉取成功时 is_stale=False；
+    拉取失败但存在最近一次成功缓存时 is_stale=True。
+    """
+    val = get_cached(key, ttl)
+    if val is not None:
+        return val, False, get_cache_age(key)
+
+    val = func()
+    if is_cacheable_value(val):
+        set_cached(key, val)
+        return val, False, 0.0
+
+    stale = get_cached(key, stale_ttl or 0, allow_expired=True)
+    if stale is not None:
+        age = get_cache_age(key)
+        if stale_ttl is None or stale_ttl <= 0 or age is None or age <= stale_ttl:
+            return stale, True, age
+    return val, False, None
 
 
 def invalidate_cache(key: str) -> bool:

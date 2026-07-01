@@ -3032,11 +3032,11 @@ async function doTailPickV2(){
 }
 // 尾盘选股 v3 AI协同引擎
 async function doTailPickAI(){
-  $('tp-result').innerHTML = loading('🤖 AI协同引擎：Layer1 LLM市场感知 → Layer2 ML拉升预测 → Layer3 LLM审查 → Layer4 风控...');
+  $('tp-result').innerHTML = loading('🤖 AI协同引擎快速版：市场感知 → ML拉升预测 → 风控过滤（45秒预算）...');
   try{
-    const r = await api(`/api/tailpick-ai?count=${$('tp-count')?.value||5}&force=1`);
+    const r = await api(`/api/tailpick-ai?count=${$('tp-count')?.value||5}&force=1&max_seconds=45`);
     if(r.error){ $('tp-result').innerHTML=`<div class="card down">${r.error}</div>`; return; }
-    if(r.engine) $('tp-result').innerHTML = `<div class="card card-gold" style="margin-bottom:8px">⚙️ ${r.engine} | ML模型: ${r.ml_insights?.model||'启发式'} | 权重: ML35%+资金25%+技术20%+市场15%+板块5%</div>`;
+    if(r.engine) $('tp-result').innerHTML = `<div class="card card-gold" style="margin-bottom:8px">⚙️ ${r.engine} | ML模型: ${r.ml_insights?.model||'启发式'} | 用时: ${r.elapsed_sec??'-'}秒 | 权重: ML35%+资金25%+技术20%+市场15%</div>`;
     renderTailPick(r);
   }catch(e){
     const msg = e.message || '';
@@ -3182,18 +3182,24 @@ function renderTailPick(r){
   const ds = r.data_source || '未知';
   const dsTip = r.data_source_tip || `本次尾盘选股行情快照来源：${ds}`;
   let html = `<div class="tail-grid">
-    <div class="metric"><div class="v">${m.score??'-'}</div><div class="l">市场情绪分（最高权重40%）</div></div>
+    <div class="metric"><div class="v">${m.score??'-'}</div><div class="l">市场情绪分</div></div>
     <div class="metric"><div class="v">${m.temperature||'-'}</div><div class="l">市场温度</div></div>
     <div class="metric"><div class="v">${b.limit_up??'-'} / ${b.limit_down??'-'}</div><div class="l">涨停 / 跌停</div></div>
     <div class="metric" title="${dsTip}"><div class="v" style="font-size:18px">${ds}</div><div class="l">数据来源</div></div>
     <div class="metric"><div class="v">${r.candidates_count??0}</div><div class="l">硬过滤后候选池</div></div>
   </div>
   <div class="card"><b>主线题材：</b>${themes.slice(0,6).map(s=>`${s.name||s.sector||'-'}${s.week_pct!=null?`(${s.week_pct>=0?'+':''}${s.week_pct}%)`:''}`).join('、') || '暂无'}<br><span class="hint">${m.note||''}</span></div>`;
+  if(r.risk_note){
+    html += `<div class="warn-box">⚠️ ${r.risk_note}</div>`;
+  }
+  if(r.analyzed_count!=null){
+    html += `<div class="card hint">候选 ${r.candidates_count??0} 只，已分析 ${r.analyzed_count??0} 只，用时 ${r.elapsed_sec??'-'} 秒。${(r.ml_insights||{}).note||''}</div>`;
+  }
   if(r.fund_chart && (r.fund_chart.symbols||[]).length){
     html += `<div class="sec-title">💰 Top候选资金流入分布图 <span class="hint">单位：亿元</span></div><div id="tp-fund-chart" class="tail-chart"></div>`;
   }
   const picks=r.picks||[];
-  if(!picks.length){ $('tp-result').innerHTML = html + `<div class="card hint">暂无符合尾盘买入条件的标的，可降低成交额/换手门槛或稍后再试。</div>`; return; }
+  if(!picks.length){ $('tp-result').innerHTML = html + `<div class="card hint">暂无符合尾盘买入条件的标的，当前按风控规则不强行补位。</div>`; return; }
   html += `<div class="sec-title">🌙 尾盘 Top ${picks.length}（${r.strategy}）</div><div class="pick-grid">`;
   picks.forEach((p,i)=>{
     const tags=[];

@@ -95,11 +95,11 @@ def _col(df: pd.DataFrame, *names: str) -> str | None:
 @dataclass
 class TailPickConfig:
     count: int = 5
-    max_pct: float = 6.0
-    min_pct: float = -3.0
+    max_pct: float = 5.5
+    min_pct: float = 0.5
     min_amount_yi: float = 1.0
     min_turnover: float = 2.0
-    min_volume_ratio: float = 0.8
+    min_volume_ratio: float = 1.0
     exclude_gem_star: bool = True
     only_mainline: bool = False
 
@@ -109,10 +109,16 @@ class UniverseFilterAgent:
 
     def __init__(self, fetcher):
         self.fetcher = fetcher
+        self.last_issue = ""
 
     def run(self, cfg: TailPickConfig) -> list[dict]:
+        self.last_issue = ""
         spot = self.fetcher.get_market_spot()
         if spot is None or spot.empty:
+            self.last_issue = "无法获取实时行情快照"
+            return []
+        if getattr(self.fetcher, "last_market_spot_stale", False):
+            self.last_issue = "行情快照来自缓存兜底，尾盘选股要求实时数据"
             return []
         code_c = _col(spot, "代码", "symbol", "code")
         name_c = _col(spot, "名称", "name")
@@ -125,7 +131,9 @@ class UniverseFilterAgent:
         main_c = _col(spot, "主力净流入", "主力净额")
         main_ratio_c = _col(spot, "主力净占比", "主力净比")
 
-        if not code_c or not pct_c:
+        # 尾盘选股依赖活跃度与实时交易质量，缺关键字段时不硬凑。
+        if not (code_c and name_c and pct_c and price_c and turn_c and vr_c and amount_c):
+            self.last_issue = "行情源缺少价格/成交额/换手/量比等尾盘关键字段"
             return []
         rows: list[dict] = []
         for _, r in spot.iterrows():
@@ -140,20 +148,22 @@ class UniverseFilterAgent:
             pct = _num(r.get(pct_c))
             if pct > cfg.max_pct or pct < cfg.min_pct or pct >= 9.5 or pct <= -9.5:
                 continue
-            amount = _num(r.get(amount_c)) if amount_c else 0.0
-            turnover = _num(r.get(turn_c)) if turn_c else 0.0
-            vr = _num(r.get(vr_c), 1.0) if vr_c else 1.0
-            # 无成交额字段时不硬杀，避免备用源缺字段导致全空
-            if amount_c and amount < cfg.min_amount_yi * 1e8:
+            price = _num(r.get(price_c))
+            if price <= 0:
                 continue
-            if turn_c and turnover < cfg.min_turnover:
+            amount = _num(r.get(amount_c))
+            turnover = _num(r.get(turn_c))
+            vr = _num(r.get(vr_c), 1.0)
+            if amount < cfg.min_amount_yi * 1e8:
                 continue
-            if vr_c and vr < cfg.min_volume_ratio:
+            if turnover < cfg.min_turnover:
+                continue
+            if vr < cfg.min_volume_ratio:
                 continue
             rows.append({
                 "symbol": code,
                 "name": name,
-                "price": round(_num(r.get(price_c)), 2) if price_c else None,
+                "price": round(price, 2),
                 "pct_change": round(pct, 2),
                 "amount": amount,
                 "amount_yi": round(amount / 1e8, 2) if amount else None,
@@ -164,10 +174,12 @@ class UniverseFilterAgent:
                 "spot_main_ratio": _num(r.get(main_ratio_c)) if main_ratio_c else None,
             })
         # 预排序：温和涨幅 + 放量 + 活跃优先，减少后续逐只取数压力
-        rows.sort(key=lambda x: ((x["pct_change"] if x["pct_change"] > 0 else -2),
-                                 x.get("volume_ratio") or 1,
+        rows.sort(key=lambda x: (x.get("volume_ratio") or 1,
+                                 x["pct_change"],
                                  x.get("turnover") or 0,
                                  x.get("amount_yi") or 0), reverse=True)
+        if not rows:
+            self.last_issue = "实时行情中没有满足温和上涨、放量、流动性条件的标的"
         return rows[:50]
 
 
@@ -327,19 +339,31 @@ class RiskControlAgent:
         flags = []
         penalty = 0.0
         pct = item.get("pct_change") or 0
-        if pct > 5.5:
-            penalty += 8
-            flags.append("涨幅接近6%上限，追高风险偏高")
-        if market.get("score", 50) < 50:
+        if pct < 0.5:
+            penalty += 12
+            flags.append("涨幅不足，尾盘承接偏弱")
+        if pct > 4.8:
+            penalty += 10
+            flags.append("涨幅接近上限，追高风险偏高")
+        if market.get("score", 50) < 45:
+            penalty += 18
+            flags.append("市场情绪弱，次日低开风险高")
+        elif market.get("score", 50) < 55:
             penalty += 8
             flags.append("市场情绪偏弱")
         if fund.get("main_net", 0) <= 0:
-            penalty += 10
+            penalty += 18
             flags.append("主力资金未明显净流入")
-        if tech.get("rsi", 50) > 78:
+        elif fund.get("inflow_ratio") is not None and fund.get("inflow_ratio", 0) < 0.5:
             penalty += 6
+            flags.append("主力净流入占比偏低")
+        if tech.get("rsi", 50) > 78:
+            penalty += 8
             flags.append("短线RSI过热")
-        can_buy = penalty < 18
+        if tech.get("ma_state") == "一般":
+            penalty += 6
+            flags.append("短线形态未转强")
+        can_buy = penalty < 16 and fund.get("main_net", 0) > 0 and market.get("score", 50) >= 45
         return {"penalty": round(penalty, 1), "flags": flags, "can_buy": can_buy}
 
 
@@ -410,12 +434,44 @@ class TailPickEngine:
         invalidate_cache("sectors:10")           # Fetcher AkShare 板块
         invalidate_cache("as_sectors_week:12")   # 近一周主线板块
 
+        # 交互参数允许传 6%，但尾盘实盘默认收紧到 5.5%，避免追高。
+        max_pct = min(float(max_pct or 5.5), 5.5)
         cfg = TailPickConfig(count=count, max_pct=max_pct,
                              min_amount_yi=min_amount_yi, min_turnover=min_turnover,
                              only_mainline=only_mainline)
         market = self.market_agent.run()
-        sector_map = self.market_agent.build_sector_map(market.get("main_themes") or [], limit=4) if only_mainline else {}
         candidates = self.universe.run(cfg)
+        source = getattr(self.fetcher, "last_market_spot_source", "未知")
+        stale = bool(getattr(self.fetcher, "last_market_spot_stale", False))
+        risk_note = ""
+        if stale:
+            risk_note = "行情快照为缓存兜底，尾盘选股要求实时数据，今日不强行给票。"
+        elif self.universe.last_issue:
+            risk_note = self.universe.last_issue
+        elif market.get("score", 50) < 45:
+            risk_note = "市场情绪弱，尾盘隔夜低开风险高，今日不强行给票。"
+
+        auto_mainline = market.get("score", 50) < 60
+        use_mainline = bool(only_mainline or auto_mainline)
+        sector_map = self.market_agent.build_sector_map(market.get("main_themes") or [], limit=4) if use_mainline else {}
+
+        if risk_note:
+            return {
+                "as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "strategy": "今日13:00-15:00尾盘买入，明日早盘卖出",
+                "data_source": source,
+                "data_source_tip": f"本次尾盘选股行情快照来源：{source}。尾盘选股要求实时行情、成交额、换手率与量比字段完整。",
+                "status": st,
+                "market": market,
+                "weights": {"market": 0.35, "fund": 0.40, "technical": 0.20, "risk_penalty": "0~30"},
+                "filters": {"max_pct": max_pct, "min_pct": cfg.min_pct, "min_amount_yi": min_amount_yi,
+                            "min_turnover": min_turnover, "min_volume_ratio": cfg.min_volume_ratio,
+                            "exclude_gem_star": True, "only_mainline": use_mainline},
+                "candidates_count": len(candidates),
+                "picks": [],
+                "fund_chart": self._fund_chart([]),
+                "risk_note": risk_note,
+            }
         out: list[dict] = []
         # 盘中响应优先：候选池已按涨幅/量比/换手/成交额预排序，只对前若干只做逐股K线技术确认
         scan_limit = max(12, min(25, count * 5))
@@ -424,11 +480,11 @@ class TailPickEngine:
             if item["symbol"] in sector_map:
                 item["hot_sector"] = sector_map[item["symbol"]]
                 item["industry"] = item["hot_sector"]["sector"]
-            elif only_mainline:
+            elif use_mainline:
                 continue
             fund = self.fund_agent.run(item)
-            # 资金是第二权重，明显净流出且分数低则跳过，减少低质量候选
-            if fund["score"] < 42 and fund.get("main_net", 0) <= 0:
+            # 尾盘选股把主力净流入作为硬条件，缺资金字段或净流出不做。
+            if fund.get("main_net", 0) <= 0:
                 continue
             tech = self.tech_agent.run(item)
             risk = self.risk_agent.run(item, market, fund, tech)
@@ -437,7 +493,10 @@ class TailPickEngine:
 
             theme_score = 88 if item.get("hot_sector") else 58
             market_stock_score = market["score"] * 0.7 + theme_score * 0.3
-            final = round(market_stock_score * 0.40 + fund["score"] * 0.35 + tech["score"] * 0.20 - risk["penalty"] + (5 if item.get("hot_sector") else 0), 1)
+            final = round(market_stock_score * 0.35 + fund["score"] * 0.40 + tech["score"] * 0.20 - risk["penalty"] + (5 if item.get("hot_sector") else 0), 1)
+            min_final = 66 if st.get("phase") in {"preview", "caution"} else 62
+            if final < min_final:
+                continue
             exp = self.explain_agent.run(item, market, fund, tech, risk)
             out.append({
                 **item,
@@ -455,18 +514,21 @@ class TailPickEngine:
 
         out.sort(key=lambda x: x["score"], reverse=True)
         picks = out[:count]
-        source = getattr(self.fetcher, "last_market_spot_source", "未知")
+        if not picks:
+            risk_note = "没有同时满足主线、主力净流入、短线形态和尾盘分数门槛的标的，宁缺毋滥。"
         return {
             "as_of": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
             "strategy": "今日13:00-15:00尾盘买入，明日早盘卖出",
             "data_source": source,
-            "data_source_tip": f"本次尾盘选股行情快照来源：{source}。盘中优先东财实时行情，收盘后优先Tushare日级快照。",
+            "data_source_tip": f"本次尾盘选股行情快照来源：{source}。尾盘选股要求实时行情、成交额、换手率与量比字段完整。",
             "status": st,
             "market": market,
-            "weights": {"market": 0.40, "fund": 0.35, "technical": 0.20, "risk_penalty": "0~20"},
-            "filters": {"max_pct": max_pct, "min_amount_yi": min_amount_yi, "min_turnover": min_turnover,
-                        "exclude_gem_star": True, "only_mainline": only_mainline},
+            "weights": {"market": 0.35, "fund": 0.40, "technical": 0.20, "risk_penalty": "0~30"},
+            "filters": {"max_pct": max_pct, "min_pct": cfg.min_pct, "min_amount_yi": min_amount_yi,
+                        "min_turnover": min_turnover, "min_volume_ratio": cfg.min_volume_ratio,
+                        "exclude_gem_star": True, "only_mainline": use_mainline},
             "candidates_count": len(candidates),
             "picks": picks,
             "fund_chart": self._fund_chart(picks),
+            "risk_note": risk_note,
         }

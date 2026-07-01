@@ -23,10 +23,12 @@ from data.fetcher import get_fetcher
 from recommend.database import RecommendDB
 
 
-def _next_trading_close(df: pd.DataFrame, base_date: str) -> Optional[tuple[str, float]]:
-    """在 K线中找到 base_date 的下一交易日，返回 (日期, 收盘价)。"""
+def _next_trading_price(df: pd.DataFrame, base_date: str, price_col: str = "close") -> Optional[tuple[str, float]]:
+    """在 K线中找到 base_date 的下一交易日，返回 (日期, 指定价格)。"""
     if df is None or df.empty or "date" not in df.columns:
         return None
+    if price_col not in df.columns:
+        price_col = "close"
     dates = df["date"].tolist()
     if base_date not in dates:
         # base_date 可能非交易日：取严格大于它的第一根
@@ -34,11 +36,11 @@ def _next_trading_close(df: pd.DataFrame, base_date: str) -> Optional[tuple[str,
         if not after:
             return None
         idx = after[0]
-        return dates[idx], float(df.iloc[idx]["close"])
+        return dates[idx], float(df.iloc[idx][price_col])
     i = dates.index(base_date)
     if i + 1 >= len(dates):
         return None  # 还没有次日数据，不可结算
-    return dates[i + 1], float(df.iloc[i + 1]["close"])
+    return dates[i + 1], float(df.iloc[i + 1][price_col])
 
 
 def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
@@ -48,7 +50,8 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
     返回该批次胜率汇总 dict；若次日数据尚不可得则返回 None（未结算）。
 
     结算策略：
-    - 优先使用 K线次日收盘价（最标准，T+1日K线）
+    - daily 优先使用 K线次日收盘价
+    - tail 优先使用 K线次日开盘价（尾盘买入、次日早盘卖出）
     - K线无次日数据时（如收盘后K线尚未更新），回退到全市场快照的当日收盘价
     """
     fetcher = fetcher or get_fetcher()
@@ -106,7 +109,8 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
 
         sym = rec["symbol"]
         df = fetcher.get_kline(sym, days=400)
-        nxt = _next_trading_close(df, base_date)
+        price_col = "open" if mode == "tail" else "close"
+        nxt = _next_trading_price(df, base_date, price_col=price_col)
 
         # K线无次日数据时 → 用今日快照收盘价兜底（收盘后K线尚未更新场景）
         if nxt is None and eval_date_expected == today_str:
@@ -122,7 +126,8 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
             entry = float(row.iloc[0]["close"]) if not row.empty else eval_close
         next_pct = round((eval_close / entry - 1) * 100, 2)
         is_win = 1 if next_pct > win_th else 0
-        note = "次日上涨" if is_win else "次日未达标"
+        note = ("次日开盘上涨" if is_win else "次日开盘未达标") if mode == "tail" else \
+               ("次日上涨" if is_win else "次日未达标")
         db.save_result(rec["id"], base_date, eval_date, rec["symbol"],
                        round(float(entry), 2), round(eval_close, 2),
                        next_pct, is_win, note, mode=mode)
@@ -138,8 +143,8 @@ def settle_batch(db: RecommendDB, base_date: str, fetcher=None,
     best = max(results, key=lambda r: r["next_pct"])
     worst = min(results, key=lambda r: r["next_pct"])
     db.save_winrate(base_date, total, wins, win_rate, avg_return,
-                    best["symbol"], worst["symbol"])
-    return db.get_winrate(base_date)
+                    best["symbol"], worst["symbol"], mode=mode)
+    return db.get_winrate(base_date, mode=mode)
 
 
 def settle_all_pending(db: RecommendDB, fetcher=None) -> list[dict]:
@@ -148,7 +153,7 @@ def settle_all_pending(db: RecommendDB, fetcher=None) -> list[dict]:
     out = []
     for mode in ("daily", "tail"):
         for base_date in db.all_recommendation_dates(mode=mode):
-            wr = db.get_winrate(base_date)
+            wr = db.get_winrate(base_date, mode=mode)
             recs = db.get_recommendations(base_date, mode=mode)
             results = db.get_results(base_date, mode=mode)
             if wr and len(results) >= len(recs):

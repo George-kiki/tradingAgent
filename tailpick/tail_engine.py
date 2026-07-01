@@ -83,7 +83,10 @@ def build_afternoon_universe(fetcher, max_pct: float = 6.0, min_amount_yi: float
     mv_c = _col(spot, "总市值")
     main_c = _col(spot, "主力净流入", "主力净额")
 
-    if not code_c or not pct_c: return []
+    # 尾盘策略强依赖实时活跃度。缺少成交额/换手/量比时宁缺毋滥，
+    # 避免用降级快照硬凑隔夜票。
+    if not (code_c and pct_c and amount_c and turn_c and vr_c):
+        return []
 
     rows = []
     for _, r in spot.iterrows():
@@ -95,11 +98,11 @@ def build_afternoon_universe(fetcher, max_pct: float = 6.0, min_amount_yi: float
         # 尾盘专属涨跌幅窗口：+0.5%~+6%（不追极高，不碰绿盘）
         if pct < 0.5 or pct > max_pct: continue
 
-        amount = _num(r.get(amount_c)) if amount_c else 0.0
-        if amount_c and amount < min_amount_yi * 1e8: continue
+        amount = _num(r.get(amount_c))
+        if amount < min_amount_yi * 1e8: continue
 
-        turnover = _num(r.get(turn_c)) if turn_c else 0.0
-        if turn_c and turnover < min_turnover: continue
+        turnover = _num(r.get(turn_c))
+        if turnover < min_turnover: continue
 
         vr = _num(r.get(vr_c), 1.0)
         # 尾盘只做放量股（缩量盘尾不值得参与）
@@ -367,10 +370,42 @@ class TailEngine:
         candidates = build_afternoon_universe(
             self.fetcher, max_pct=max_pct,
             min_amount_yi=min_amount_yi, min_turnover=min_turnover)
+        source = getattr(self.fetcher, "last_market_spot_source", "未知")
+        stale = bool(getattr(self.fetcher, "last_market_spot_stale", False))
+        if stale:
+            return {
+                "engine": "tail-dedicated",
+                "as_of": now.strftime("%Y-%m-%d %H:%M"),
+                "strategy": "尾盘14:30买入，次日早盘卖出（专属引擎）",
+                "data_source": source,
+                "market": {},
+                "weights": {"fund": 0.40, "tail_tech": 0.35, "market": 0.25},
+                "filters": {"max_pct": max_pct, "min_amount_yi": min_amount_yi,
+                            "min_turnover": min_turnover},
+                "candidates_count": 0,
+                "picks": [],
+                "fund_chart": {"symbols": [], "series": [], "ratio": [], "unit": "亿元"},
+                "risk_note": "行情快照为缓存兜底，尾盘策略要求实时数据，今日不强行推荐。",
+            }
 
         # Stage 2: 市场情绪
         print("[尾盘] 2/4 市场情绪...")
         market = compute_tail_market(self.fetcher)
+        if market.get("score", 50) < 45:
+            return {
+                "engine": "tail-dedicated",
+                "as_of": now.strftime("%Y-%m-%d %H:%M"),
+                "strategy": "尾盘14:30买入，次日早盘卖出（专属引擎）",
+                "data_source": source,
+                "market": market,
+                "weights": {"fund": 0.40, "tail_tech": 0.35, "market": 0.25},
+                "filters": {"max_pct": max_pct, "min_amount_yi": min_amount_yi,
+                            "min_turnover": min_turnover},
+                "candidates_count": len(candidates),
+                "picks": [],
+                "fund_chart": {"symbols": [], "series": [], "ratio": [], "unit": "亿元"},
+                "risk_note": "市场情绪偏弱，尾盘隔夜低开风险高，今日不强行推荐。",
+            }
 
         # Stage 3: 逐股分析
         print(f"[尾盘] 3/4 逐股技术+资金 ({len(candidates[:20])}只)...")
@@ -393,12 +428,16 @@ class TailEngine:
             # 卖点/止损
             buy_plan = "14:30后站稳分时均价可小仓试买，不放量不追"
             sell_plan = "次日高开+2%~+4%分批止盈；低开30分钟不翻红止损"
-            stop_loss = f"跌破买入价2%或{VWAP_DESC}"
             VWAP_DESC = "分时均线破位" if tech.get("vwap_above") else "持仓成本线"
+            stop_loss = f"跌破买入价2%或{VWAP_DESC}"
+
+            if final < 58:
+                continue
 
             out.append({
                 **item,
                 "score": final,
+                "entry_price": item.get("price"),
                 "fund": fund,
                 "tech_score": tech["score"],
                 "tech_note": tech.get("note", ""),
@@ -427,6 +466,7 @@ class TailEngine:
             "engine": "tail-dedicated",
             "as_of": now.strftime("%Y-%m-%d %H:%M"),
             "strategy": "尾盘14:30买入，次日早盘卖出（专属引擎）",
+            "data_source": source,
             "market": market,
             "weights": {"fund": 0.40, "tail_tech": 0.35, "market": 0.25},
             "filters": {"max_pct": max_pct, "min_amount_yi": min_amount_yi,

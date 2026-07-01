@@ -136,6 +136,41 @@ class RecommendDB:
                     c.execute(f"ALTER TABLE recommendations ADD COLUMN {col_decl}")
                 except Exception:
                     pass
+            # 迁移：胜率汇总按 mode 隔离。旧表以 base_date 为主键，会导致 daily/tail
+            # 同日互相覆盖；这里重建为 (base_date, mode) 复合主键。
+            info = c.execute("PRAGMA table_info(daily_winrate)").fetchall()
+            cols = [r["name"] for r in info]
+            pk_cols = [r["name"] for r in info if r["pk"]]
+            if "mode" not in cols or pk_cols == ["base_date"]:
+                c.execute("ALTER TABLE daily_winrate RENAME TO daily_winrate_old")
+                c.execute(
+                    """
+                    CREATE TABLE daily_winrate (
+                        base_date   TEXT NOT NULL,
+                        mode        TEXT NOT NULL DEFAULT 'daily',
+                        total       INTEGER,
+                        wins        INTEGER,
+                        win_rate    REAL,
+                        avg_return  REAL,
+                        best_symbol TEXT,
+                        worst_symbol TEXT,
+                        created_at  TEXT,
+                        PRIMARY KEY(base_date, mode)
+                    )
+                    """
+                )
+                old_cols = [r["name"] for r in c.execute("PRAGMA table_info(daily_winrate_old)").fetchall()]
+                mode_expr = "mode" if "mode" in old_cols else "'daily'"
+                c.execute(
+                    f"""
+                    INSERT OR REPLACE INTO daily_winrate
+                    (base_date, mode, total, wins, win_rate, avg_return, best_symbol, worst_symbol, created_at)
+                    SELECT base_date, {mode_expr}, total, wins, win_rate, avg_return,
+                           best_symbol, worst_symbol, created_at
+                    FROM daily_winrate_old
+                    """
+                )
+                c.execute("DROP TABLE daily_winrate_old")
 
     # ------------------------------------------------------------------
     # 推荐明细
@@ -279,49 +314,64 @@ class RecommendDB:
     # 胜率
     # ------------------------------------------------------------------
     def save_winrate(self, base_date: str, total: int, wins: int, win_rate: float,
-                     avg_return: float, best: str = "", worst: str = "") -> None:
+                     avg_return: float, best: str = "", worst: str = "",
+                     mode: str = "daily") -> None:
         with self._conn() as c:
             c.execute(
                 """INSERT OR REPLACE INTO daily_winrate
-                (base_date, total, wins, win_rate, avg_return, best_symbol, worst_symbol, created_at)
-                VALUES (?,?,?,?,?,?,?,?)""",
-                (base_date, total, wins, win_rate, avg_return, best, worst, _now()),
+                (base_date, mode, total, wins, win_rate, avg_return, best_symbol, worst_symbol, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (base_date, mode, total, wins, win_rate, avg_return, best, worst, _now()),
             )
 
-    def get_winrate(self, base_date: str) -> Optional[dict]:
+    def get_winrate(self, base_date: str, mode: str = "daily") -> Optional[dict]:
         with self._conn() as c:
-            row = c.execute("SELECT * FROM daily_winrate WHERE base_date=?", (base_date,)).fetchone()
+            row = c.execute(
+                "SELECT * FROM daily_winrate WHERE base_date=? AND mode=?",
+                (base_date, mode),
+            ).fetchone()
         return dict(row) if row else None
 
-    def latest_winrate(self, before: Optional[str] = None) -> Optional[dict]:
+    def latest_winrate(self, before: Optional[str] = None, mode: str = "daily") -> Optional[dict]:
         sql = "SELECT * FROM daily_winrate"
-        args: tuple = ()
+        args: list = []
+        conds = ["mode = ?"]
+        args.append(mode)
         if before:
-            sql += " WHERE base_date < ?"
-            args = (before,)
+            conds.append("base_date < ?")
+            args.append(before)
+        sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY base_date DESC LIMIT 1"
         with self._conn() as c:
-            row = c.execute(sql, args).fetchone()
+            row = c.execute(sql, tuple(args)).fetchone()
         return dict(row) if row else None
 
-    def recent_winrates(self, n: int = 5, before: Optional[str] = None) -> list[dict]:
+    def recent_winrates(self, n: int = 5, before: Optional[str] = None,
+                        mode: str = "daily") -> list[dict]:
         """获取最近 N 批次的胜率记录（用于滚动窗口评估）。"""
         sql = "SELECT * FROM daily_winrate"
-        args: tuple = ()
+        args: list = [mode]
+        conds = ["mode = ?"]
         if before:
-            sql += " WHERE base_date < ?"
-            args = (before,)
+            conds.append("base_date < ?")
+            args.append(before)
+        sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY base_date DESC LIMIT ?"
-        args += (n,)
+        args.append(n)
         with self._conn() as c:
-            rows = c.execute(sql, args).fetchall()
+            rows = c.execute(sql, tuple(args)).fetchall()
         return [dict(r) for r in reversed(rows)]  # 按日期升序
 
-    def winrate_history(self, limit: int = 30) -> list[dict]:
+    def winrate_history(self, limit: int = 30, mode: Optional[str] = None) -> list[dict]:
+        sql = "SELECT * FROM daily_winrate"
+        args: list = []
+        if mode:
+            sql += " WHERE mode = ?"
+            args.append(mode)
+        sql += " ORDER BY base_date DESC LIMIT ?"
+        args.append(limit)
         with self._conn() as c:
-            rows = c.execute(
-                "SELECT * FROM daily_winrate ORDER BY base_date DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = c.execute(sql, tuple(args)).fetchall()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------

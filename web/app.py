@@ -293,6 +293,24 @@ def api_kline_health(sample: int = Query(100, description="采样数量"), pool:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+@app.get("/api/data-health")
+def api_data_health(refresh: bool = Query(False, description="是否先触发行情快照刷新")):
+    """数据源健康状态：展示最近一次行情源路由结果。"""
+    from data.fetcher import get_fetcher
+    try:
+        f = get_fetcher()
+        if refresh:
+            f.get_market_spot()
+        return JSONResponse({
+            "active_source": f.active_source,
+            "last_market_spot_source": f.last_market_spot_source,
+            "last_market_spot_stale": getattr(f, "last_market_spot_stale", False),
+            "health": getattr(f, "source_health", {}),
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
 def _compute_thermometer(fetcher, symbol: str, fund_flow: dict, index_pct: float = None) -> dict:
     """计算情绪温度计（六维加权）。"""
     try:
@@ -687,7 +705,7 @@ def api_review(holdings: str = Query(default="", description="可选持仓股，
         hlist = [h.strip().zfill(6) for h in holdings.split(",") if h.strip()] if holdings.strip() else []
         res = generate_and_store(store=True, holdings=hlist)
         return {"html": res["html"], "date": res.get("date"),
-                "record": res.get("record")}
+                "record": res.get("record"), "metrics": res.get("metrics")}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
@@ -1045,35 +1063,35 @@ def _recommend_view(db, base_date: str, mode: str = "daily") -> dict:
         "data_source": "历史/缓存结果",
         "data_source_tip": "当前为已落库荐股记录；原始生成时的数据源未单独存储。新生成时优先级：东方财富直连 → Tushare → AkShare封装东财 → 新浪兜底。",
         "sentiment": sentiment,
-        "prev_winrate": db.latest_winrate(before=base_date),
-        "winrate": db.get_winrate(base_date),
+        "prev_winrate": db.latest_winrate(before=base_date, mode=mode),
+        "winrate": db.get_winrate(base_date, mode=mode),
         "reflection": db.get_reflection(base_date),
         "threshold": settings.winrate_threshold,
     }
 
 
 @app.get("/api/recommend/latest")
-def api_recommend_latest():
+def api_recommend_latest(mode: str = Query("daily", description="daily 或 tail")):
     """只读取最新一期已落库的荐股结果（不重新计算，秒开）。"""
     from recommend.database import RecommendDB
     try:
         db = RecommendDB()
-        base_date = db.latest_recommendation_date()
+        base_date = db.latest_recommendation_date(mode=mode)
         if not base_date:
             return {"empty": True}
-        return _recommend_view(db, base_date)
+        return _recommend_view(db, base_date, mode=mode)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.get("/api/recommend/dates")
-def api_recommend_dates():
+def api_recommend_dates(mode: str = Query("daily", description="daily 或 tail")):
     """所有历史荐股日期 + 各自胜率（供历史下拉选择）。"""
     from recommend.database import RecommendDB
     try:
         db = RecommendDB()
-        dates = db.all_recommendation_dates()
-        wmap = {w["base_date"]: w for w in db.winrate_history(limit=1000)}
+        dates = db.all_recommendation_dates(mode=mode)
+        wmap = {w["base_date"]: w for w in db.winrate_history(limit=1000, mode=mode)}
         out = []
         for d in dates:
             w = wmap.get(d)
@@ -1089,26 +1107,27 @@ def api_recommend_dates():
 
 
 @app.get("/api/recommend/by-date")
-def api_recommend_by_date(date: str = Query(..., description="荐股批次日期 YYYY-MM-DD")):
+def api_recommend_by_date(date: str = Query(..., description="荐股批次日期 YYYY-MM-DD"),
+                          mode: str = Query("daily", description="daily 或 tail")):
     """按日期查看历史荐股（只读，不重新计算）。"""
     from recommend.database import RecommendDB
     try:
         db = RecommendDB()
-        if not db.get_recommendations(date):
+        if not db.get_recommendations(date, mode=mode):
             return {"empty": True, "base_date": date}
-        return _recommend_view(db, date)
+        return _recommend_view(db, date, mode=mode)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.get("/api/recommend/history")
-def api_recommend_history(limit: int = Query(30)):
+def api_recommend_history(limit: int = Query(30), mode: str = Query("daily", description="daily 或 tail")):
     """胜率历史 + 近期反思记录。"""
     from recommend.database import RecommendDB
     try:
         db = RecommendDB()
         return {
-            "winrate_history": db.winrate_history(limit),
+            "winrate_history": db.winrate_history(limit, mode=mode),
             "reflections": db.recent_reflections(10),
         }
     except Exception as e:
@@ -1377,12 +1396,16 @@ def api_tailpick_v2(count: int = Query(5), force: bool = Query(False)):
 
 
 @app.get("/api/tailpick-ai")
-def api_tailpick_ai(count: int = Query(5), force: bool = Query(False)):
+def api_tailpick_ai(count: int = Query(5), force: bool = Query(False),
+                    max_seconds: int = Query(45, ge=15, le=120),
+                    use_llm_review: bool = Query(False)):
     """AI协同尾盘荐股 — Layer1 LLM市场感知 + Layer2 ML拉升预测 + Layer3 LLM审查。"""
     from tailpick.ai_tail_engine import AITailEngine
     try:
         eng = AITailEngine()
-        result = eng.run(count=count, force=force)
+        result = eng.run(count=count, force=force,
+                         max_seconds=max_seconds,
+                         use_llm_review=use_llm_review)
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -1401,12 +1424,17 @@ def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
     if not status["can_regenerate"] and not force:
         return JSONResponse({"error": status["reason"], **status}, status_code=403)
 
-    from recommend.engine import RecommendEngine
     from recommend.database import RecommendDB
+    from recommend.winrate import settle_all_pending
+    from tailpick.tail_engine import TailEngine
     MODE = "tail"
     try:
         db = RecommendDB()
         today_str = dt.date.today().strftime("%Y-%m-%d")
+        try:
+            settle_all_pending(db)
+        except Exception:
+            pass
 
         # force=False 且今日已有结果 → 直接返回 DB 缓存（秒开）
         if not force and db.latest_recommendation_date(mode=MODE) == today_str \
@@ -1431,13 +1459,21 @@ def api_tail_recommend(count: int = Query(5), force: bool = Query(False)):
         else:
             print(f"[尾盘荐股] 非实时窗口 {dt.datetime.now():%H:%M}，使用缓存数据（与 14:30 一致）")
 
-        eng = RecommendEngine()
-        # 尾盘模式：as_of=today，_resolve_base_date 会正确返回今天
-        # （当K线无当日条形时自动回退到today_str，非退回昨天）
-        os.environ["REC_SCAN_MAX"] = str(min(count * 3, 15))
-        res = eng.run(count=count, mode=MODE, skip_llm_review=True, as_of=today_str)
+        res = TailEngine().run(count=count, force=force)
         if res.get("error"):
             return JSONResponse(res, status_code=400)
+        picks = res.get("picks", [])
+        for p in picks:
+            p["entry_price"] = p.get("entry_price") or p.get("price")
+            p.setdefault("factors", {})
+            p["factors"].update({
+                "tail_engine": res.get("engine", "tail-dedicated"),
+                "market_score": p.get("market_score"),
+                "fund_score": p.get("fund_score"),
+                "risk_penalty": p.get("risk_penalty"),
+                "risk_flags": p.get("risk_flags", []),
+            })
+        db.save_recommendations(today_str, picks, mode=MODE)
         return JSONResponse({**res, "tailpick_mode": True, "data_realtime": in_window})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)

@@ -59,17 +59,17 @@ _TENCENT_UA = (
 )
 
 
-def _tencent_get(url: str, params: dict = None) -> Optional[requests.Response]:
+def _tencent_get(url: str, params: dict = None, timeout: float = 4.0, retries: int = 1) -> Optional[requests.Response]:
     """腾讯财经 HTTP 请求（简单重试）。"""
     sess = requests.Session()
     sess.headers.update({"User-Agent": _TENCENT_UA})
-    for attempt in range(3):
+    for attempt in range(max(1, retries)):
         try:
-            resp = sess.get(url, params=params, timeout=10)
+            resp = sess.get(url, params=params, timeout=timeout)
             if resp.status_code == 200:
                 return resp
         except Exception:
-            if attempt < 2:
+            if attempt < retries - 1:
                 time.sleep(0.5)
     return None
 
@@ -78,11 +78,17 @@ def _tencent_market_snapshot(codes: list[str]) -> Optional[list[dict]]:
     """腾讯实时行情快照（批量）。返回 [{代码,名称,...}] 列表。"""
     tcodes = []
     for c in codes:
-        c = str(c).strip().zfill(6)
-        if c.startswith("6"):
-            tcodes.append(f"sh{c}")
+        raw = str(c).strip().lower()
+        if raw.startswith(("sh", "sz", "bj")):
+            tcodes.append(raw)
+            continue
+        raw = raw.zfill(6)
+        if raw.startswith("6"):
+            tcodes.append(f"sh{raw}")
+        elif raw.startswith(("4", "8", "9")):
+            tcodes.append(f"bj{raw}")
         else:
-            tcodes.append(f"sz{c}")
+            tcodes.append(f"sz{raw}")
     if not tcodes:
         return None
     resp = _tencent_get(
@@ -94,24 +100,31 @@ def _tencent_market_snapshot(codes: list[str]) -> Optional[list[dict]]:
     return _parse_tencent_json(resp.text)
 
 
-def _tencent_all_market() -> Optional[pd.DataFrame]:
+def _tencent_all_market(max_seconds: float = 18.0, min_rows: int = 1200) -> Optional[pd.DataFrame]:
     """腾讯全市场行情快照（分页批量拉取沪深主板）。"""
+    started = time.time()
     all_rows = []
     prefixes = [
         ("sh", "600"), ("sh", "601"), ("sh", "603"), ("sh", "605"),
         ("sz", "000"), ("sz", "001"), ("sz", "002"), ("sz", "003"),
+        ("sz", "300"), ("sz", "301"),
+        ("bj", "430"), ("bj", "831"), ("bj", "832"), ("bj", "833"),
+        ("bj", "834"), ("bj", "835"), ("bj", "836"), ("bj", "837"),
+        ("bj", "838"), ("bj", "839"), ("bj", "870"), ("bj", "871"),
     ]
     for market, prefix in prefixes:
         codes = [f"{market}{prefix}{i:03d}" for i in range(1000)]
         for batch_start in range(0, len(codes), 50):
+            if time.time() - started > max_seconds:
+                break
             batch = codes[batch_start:batch_start + 50]
             rows = _tencent_market_snapshot(batch)  # 现在直接返回列表
             if rows:
                 all_rows.extend(rows)
-            time.sleep(0.1)
-        if len(all_rows) >= 4000:
+            time.sleep(0.05)
+        if len(all_rows) >= 4000 or (time.time() - started > max_seconds and len(all_rows) >= min_rows):
             break
-    if not all_rows:
+    if len(all_rows) < min_rows:
         return None
     df = pd.DataFrame(all_rows)
     df = df.drop_duplicates(subset=["代码"]).reset_index(drop=True)
@@ -133,7 +146,7 @@ def _parse_tencent_json(raw: str) -> list[dict]:
     for code_key, vals in data.items():
         if not isinstance(vals, list) or len(vals) < 40:
             continue
-        code = re.sub(r'^[shz]+', '', code_key).zfill(6)
+        code = re.sub(r'^(sh|sz|bj)', '', code_key).zfill(6)
         try:
             amount_val = _safe_float(vals[37])
             amount = amount_val * 10000 if amount_val else None  # 万→元
